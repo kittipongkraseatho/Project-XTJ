@@ -14,8 +14,10 @@ import (
 	mehttp "github.com/trading-journal/api/internal/httpapi/me"
 	phase1http "github.com/trading-journal/api/internal/httpapi/phase1"
 	phase2http "github.com/trading-journal/api/internal/httpapi/phase2"
+	phase3http "github.com/trading-journal/api/internal/httpapi/phase3"
 	"github.com/trading-journal/api/internal/domain/broker_connection"
 	"github.com/trading-journal/api/internal/integration/broker"
+	"github.com/trading-journal/api/internal/integration/pdfreport"
 	"github.com/trading-journal/api/internal/integration/cloudinary"
 	"github.com/trading-journal/api/internal/integration/oauth"
 	"github.com/trading-journal/api/internal/observability"
@@ -129,6 +131,11 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	syncWk.Start()
 	p2 := phase2http.New(st, syncSvc, syncWk, brokerReg, logger)
 
+	// Phase 3 — PDF reports. signintech impl by default; the stub is used
+	// only in tests where the signintech code path is being explicitly avoided.
+	var pdfImpl pdfreport.Service = pdfreport.NewSignintechService()
+	p3 := phase3http.New(st, pdfImpl, logger)
+
 	v1 := e.Group("/v1")
 
 	// Public auth (rate-limited per IP)
@@ -182,6 +189,9 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.POST("/brokers/connections/:id/sync", p2.TriggerSync)
 	authed.GET("/brokers/connections/:id/sync-runs", p2.ListSyncRuns)
 	authed.GET("/brokers/sync-runs/:id", p2.GetSyncRun)
+
+	// Phase 3 — PDF reports (auth + tenant scoped)
+	authed.POST("/reports/pdf", p3.GeneratePDF)
 
 	return syncWk
 }
