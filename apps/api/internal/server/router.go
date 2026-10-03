@@ -2,7 +2,6 @@ package server
 
 import (
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -10,22 +9,34 @@ import (
 
 	"github.com/trading-journal/api/internal/auth"
 	"github.com/trading-journal/api/internal/config"
+	authhttp "github.com/trading-journal/api/internal/httpapi/auth"
+	mehttp "github.com/trading-journal/api/internal/httpapi/me"
+	phase1http "github.com/trading-journal/api/internal/httpapi/phase1"
+	"github.com/trading-journal/api/internal/integration/oauth"
 	"github.com/trading-journal/api/internal/observability"
+	"github.com/trading-journal/api/internal/service"
+	"github.com/trading-journal/api/internal/store"
 )
 
 // RegisterRoutes mounts every endpoint under /v1 + the system endpoints.
 //
-// Phase 0 endpoints:
-//   - GET /healthz           — process alive (no deps)
-//   - GET /livez             — alias of /healthz for k8s liveness
-//   - GET /readyz            — Postgres + Redis reachable
-//   - POST /v1/auth/register
-//   - POST /v1/auth/login
-//   - POST /v1/auth/refresh
-//   - POST /v1/auth/logout     (auth required)
-//   - GET  /v1/me              (auth required)
-//   - GET  /v1/auth/oauth/{provider}/start
-//   - GET  /v1/auth/oauth/{provider}/callback
+// Phase 0 + Phase 1 endpoints (all real):
+//   - GET  /healthz / /livez / /readyz
+//   - POST /v1/auth/register         (public, IP-rate-limited)
+//   - POST /v1/auth/login            (public, IP-rate-limited)
+//   - POST /v1/auth/refresh          (public, IP-rate-limited)
+//   - GET  /v1/auth/oauth/:provider/start     (public, IP-rate-limited)
+//   - GET  /v1/auth/oauth/:provider/callback  (public)
+//   - POST /v1/auth/logout           (auth required)
+//   - GET  /v1/me                    (auth required)
+//   - POST /v1/imports               (auth required, multipart)
+//   - GET  /v1/imports               (auth required)
+//   - GET  /v1/accounts              (auth required)
+//   - POST /v1/accounts              (auth required)
+//   - GET  /v1/trades                (auth required)
+//   - GET  /v1/trades/:id            (auth required)
+//   - GET  /v1/analytics/overview    (auth required)
+//   - GET  /v1/analytics/daily-pl    (auth required)
 func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *observability.RateLimiter, cfg *config.Config, logger *slog.Logger) {
 	// System endpoints (no auth, no rate limit)
 	e.GET("/healthz", Healthz())
@@ -36,71 +47,54 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	jwtSvc, err := auth.NewJWTService(cfg.JWTKeyPath, cfg.JWTIssuer, cfg.JWTAudience, cfg.AccessTokenTTL)
 	if err != nil {
 		logger.Error("init jwt service", slog.String("error", err.Error()))
-		// Cannot continue without JWT — fail fast at startup.
-		// (server.go's run() will exit with non-zero code.)
 		panic(err)
 	}
-	_ = time.Second // placeholder to keep `time` import if all real usages removed later
+
+	st := store.New(pool)
+
+	// OAuth providers (only those with both ID + secret are usable)
+	registry := oauth.NewRegistry()
+	if cfg.GoogleOAuthEnabled() {
+		registry.Register(oauth.NewGoogleProvider(cfg.OAuthGoogleID, cfg.OAuthGoogleSecret, cfg.OAuthGoogleRedirect))
+		logger.Info("oauth provider enabled", slog.String("provider", "google"))
+	}
+	if cfg.LineOAuthEnabled() {
+		registry.Register(oauth.NewLineProvider(cfg.OAuthLineID, cfg.OAuthLineSecret, cfg.OAuthLineRedirect))
+		logger.Info("oauth provider enabled", slog.String("provider", "line"))
+	}
+
+	authSvc := service.NewAuthService(cfg, st, jwtSvc, logger)
+	authH := authhttp.New(authSvc, logger)
+	meH := mehttp.New(authSvc, logger)
+	oauthFlow := oauth.NewFlow(cfg, st, registry, jwtSvc, logger)
+	oauthH := authhttp.NewOAuthHandlers(oauthFlow, logger)
+	importSvc := service.NewImportService(st, logger)
+	p1 := phase1http.New(st, importSvc, logger)
 
 	v1 := e.Group("/v1")
 
 	// Public auth (rate-limited per IP)
 	authPublic := v1.Group("/auth")
 	authPublic.Use(rl.AuthIPLimit())
-	authPublic.POST("/register", RegisterHandlerPlaceholder())
-	authPublic.POST("/login", LoginHandlerPlaceholder())
-	authPublic.POST("/refresh", RefreshHandlerPlaceholder())
-	authPublic.GET("/oauth/:provider/start", OAuthStartHandlerPlaceholder())
-	authPublic.GET("/oauth/:provider/callback", OAuthCallbackHandlerPlaceholder())
+	authPublic.POST("/register", authH.Register)
+	authPublic.POST("/login", authH.Login)
+	authPublic.POST("/refresh", authH.Refresh)
+	authPublic.GET("/oauth/:provider/start", oauthH.Start)
+	authPublic.GET("/oauth/:provider/callback", oauthH.Callback)
 
-	// Authed routes (auth + user/tenant rate limits)
+	// Authed routes
 	authed := v1.Group("", auth.AuthMiddleware(jwtSvc, logger))
 	authed.Use(rl.UserLimit(), rl.TenantLimit())
-	authed.POST("/auth/logout", LogoutHandlerPlaceholder())
-	authed.GET("/me", MeHandlerPlaceholder())
-}
+	authed.POST("/auth/logout", authH.Logout)
+	authed.GET("/me", meH.Me)
 
-// Placeholder handlers — return 501 until their real implementations are added
-// in steps 7 (auth handlers) and 9 (oauth handlers). Each step replaces these.
-
-func RegisterHandlerPlaceholder() echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return c.JSON(501, map[string]string{"error": "register handler not implemented yet"})
-	}
-}
-
-func LoginHandlerPlaceholder() echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return c.JSON(501, map[string]string{"error": "login handler not implemented yet"})
-	}
-}
-
-func RefreshHandlerPlaceholder() echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return c.JSON(501, map[string]string{"error": "refresh handler not implemented yet"})
-	}
-}
-
-func LogoutHandlerPlaceholder() echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return c.JSON(501, map[string]string{"error": "logout handler not implemented yet"})
-	}
-}
-
-func MeHandlerPlaceholder() echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return c.JSON(501, map[string]string{"error": "me handler not implemented yet"})
-	}
-}
-
-func OAuthStartHandlerPlaceholder() echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return c.JSON(501, map[string]string{"error": "oauth start not implemented yet"})
-	}
-}
-
-func OAuthCallbackHandlerPlaceholder() echo.HandlerFunc {
-	return func(c echo.Context) error {
-		return c.JSON(501, map[string]string{"error": "oauth callback not implemented yet"})
-	}
+	// Phase 1 — imports / trades / analytics / accounts (auth required)
+	authed.POST("/imports", p1.Upload)
+	authed.GET("/imports", p1.ListImports)
+	authed.GET("/accounts", p1.ListAccounts)
+	authed.POST("/accounts", p1.CreateAccount)
+	authed.GET("/trades", p1.ListTrades)
+	authed.GET("/trades/:id", p1.GetTrade)
+	authed.GET("/analytics/overview", p1.OverviewAnalytics)
+	authed.GET("/analytics/daily-pl", p1.DailyPL)
 }

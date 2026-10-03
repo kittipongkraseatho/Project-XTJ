@@ -82,6 +82,8 @@ var (
 	ErrOAuthProviderNotConfigured = &Error{Code: "OAUTH_PROVIDER_NOT_CONFIGURED", Message: "oauth provider is not configured", HTTP: http.StatusBadRequest}
 	ErrOAuthCodeExchange = &Error{Code: "OAUTH_CODE_EXCHANGE_FAILED", Message: "oauth code exchange failed", HTTP: http.StatusBadGateway}
 	ErrOAuthUserInfo = &Error{Code: "OAUTH_USERINFO_FAILED", Message: "oauth userinfo fetch failed", HTTP: http.StatusBadGateway}
+	ErrParseFailed = &Error{Code: "PARSE_FAILED", Message: "failed to parse file", HTTP: http.StatusUnprocessableEntity}
+	ErrImportFailed = &Error{Code: "IMPORT_FAILED", Message: "import failed", HTTP: http.StatusUnprocessableEntity}
 )
 
 // ── JSON envelope ────────────────────────────────────────────────────
