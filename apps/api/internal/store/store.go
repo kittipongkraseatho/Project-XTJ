@@ -34,53 +34,57 @@ func FromPool(p *pgxpool.Pool) DBTX { return p }
 
 // Store aggregates all per-table repositories.
 type Store struct {
-	Pool            *pgxpool.Pool
-	Users           *UserRepo
-	Tenants         *TenantRepo
-	Memberships     *MembershipRepo
-	Plans           *PlanRepo
-	Subscriptions   *SubscriptionRepo
-	Refresh         *RefreshSessionRepo
-	Audit           *AuditLogRepo
-	OAuthStates     *OAuthStateRepo
-	UserIdentities  *UserIdentityRepo
-	TradingAccounts *TradingAccountRepo
-	ImportedFiles   *ImportedFileRepo
-	ImportJobs      *ImportJobRepo
-	Deals           *DealRepo
-	Positions       *PositionRepo
-	Trades          *TradeRepo
-	JournalEntries  *JournalEntryRepo
-	Tags            *TagRepo
-	TradeTags       *TradeTagsRepo
-	TradeImages     *TradeImageRepo
-	DailyMetrics    *DailyMetricRepo
+	Pool              *pgxpool.Pool
+	Users             *UserRepo
+	Tenants           *TenantRepo
+	Memberships       *MembershipRepo
+	Plans             *PlanRepo
+	Subscriptions     *SubscriptionRepo
+	Refresh           *RefreshSessionRepo
+	Audit             *AuditLogRepo
+	OAuthStates       *OAuthStateRepo
+	UserIdentities    *UserIdentityRepo
+	TradingAccounts   *TradingAccountRepo
+	ImportedFiles     *ImportedFileRepo
+	ImportJobs        *ImportJobRepo
+	Deals             *DealRepo
+	Positions         *PositionRepo
+	Trades            *TradeRepo
+	JournalEntries    *JournalEntryRepo
+	Tags              *TagRepo
+	TradeTags         *TradeTagsRepo
+	TradeImages       *TradeImageRepo
+	DailyMetrics      *DailyMetricRepo
+	BrokerConnections *BrokerConnectionRepo
+	SyncRuns          *SyncRunRepo
 }
 
 // New builds a Store with all repos wired to the given pool.
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{
-		Pool:            pool,
-		Users:           &UserRepo{pool: pool},
-		Tenants:         &TenantRepo{pool: pool},
-		Memberships:     &MembershipRepo{pool: pool},
-		Plans:           &PlanRepo{pool: pool},
-		Subscriptions:   &SubscriptionRepo{pool: pool},
-		Refresh:         &RefreshSessionRepo{pool: pool},
-		Audit:           &AuditLogRepo{pool: pool},
-		OAuthStates:     &OAuthStateRepo{pool: pool},
-		UserIdentities:  &UserIdentityRepo{pool: pool},
-		TradingAccounts: &TradingAccountRepo{pool: pool},
-		ImportedFiles:   &ImportedFileRepo{pool: pool},
-		ImportJobs:      &ImportJobRepo{pool: pool},
-		Deals:           &DealRepo{pool: pool},
-		Positions:       &PositionRepo{pool: pool},
-		Trades:          &TradeRepo{pool: pool},
-		JournalEntries:  &JournalEntryRepo{pool: pool},
-		Tags:            &TagRepo{pool: pool},
-		TradeTags:       &TradeTagsRepo{pool: pool},
-		TradeImages:     &TradeImageRepo{pool: pool},
-		DailyMetrics:    &DailyMetricRepo{pool: pool},
+		Pool:              pool,
+		Users:             &UserRepo{pool: pool},
+		Tenants:           &TenantRepo{pool: pool},
+		Memberships:       &MembershipRepo{pool: pool},
+		Plans:             &PlanRepo{pool: pool},
+		Subscriptions:     &SubscriptionRepo{pool: pool},
+		Refresh:           &RefreshSessionRepo{pool: pool},
+		Audit:             &AuditLogRepo{pool: pool},
+		OAuthStates:       &OAuthStateRepo{pool: pool},
+		UserIdentities:    &UserIdentityRepo{pool: pool},
+		TradingAccounts:   &TradingAccountRepo{pool: pool},
+		ImportedFiles:     &ImportedFileRepo{pool: pool},
+		ImportJobs:        &ImportJobRepo{pool: pool},
+		Deals:             &DealRepo{pool: pool},
+		Positions:         &PositionRepo{pool: pool},
+		Trades:            &TradeRepo{pool: pool},
+		JournalEntries:    &JournalEntryRepo{pool: pool},
+		Tags:              &TagRepo{pool: pool},
+		TradeTags:         &TradeTagsRepo{pool: pool},
+		TradeImages:       &TradeImageRepo{pool: pool},
+		DailyMetrics:      &DailyMetricRepo{pool: pool},
+		BrokerConnections: &BrokerConnectionRepo{pool: pool},
+		SyncRuns:          &SyncRunRepo{pool: pool},
 	}
 }
 
