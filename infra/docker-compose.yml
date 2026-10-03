@@ -1,0 +1,43 @@
+# Trading Journal Phase 0 — local dev docker-compose
+#
+# Brings up postgres + redis (production-like).
+# API + Web are NOT in compose — run them on host with hot reload (air / pnpm dev).
+# See ../../README.md for why and how to run api/web outside compose.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tj-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tj}
+      POSTGRES_USER: ${POSTGRES_USER:-tj}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tj} -d ${POSTGRES_DB:-tj}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: tj-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:
