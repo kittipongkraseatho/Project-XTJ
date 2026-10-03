@@ -59,6 +59,7 @@ type Store struct {
 	SyncRuns          *SyncRunRepo
 	Payments          *PaymentRepo
 	ReportSchedules   *ReportScheduleRepo
+	APIKeys           *APIKeyRepo
 }
 
 // New builds a Store with all repos wired to the given pool.
@@ -89,6 +90,7 @@ func New(pool *pgxpool.Pool) *Store {
 		SyncRuns:          &SyncRunRepo{pool: pool},
 		Payments:          &PaymentRepo{pool: pool},
 		ReportSchedules:   &ReportScheduleRepo{pool: pool},
+		APIKeys:           &APIKeyRepo{pool: pool},
 	}
 }
 
