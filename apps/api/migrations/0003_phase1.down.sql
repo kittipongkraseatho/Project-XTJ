@@ -1,0 +1,25 @@
+DROP TABLE IF EXISTS daily_metrics;
+DROP TABLE IF EXISTS trade_images;
+DROP TABLE IF EXISTS journal_entries;
+DROP TABLE IF EXISTS trade_tags;
+DROP TABLE IF EXISTS tags;
+DROP TABLE IF EXISTS trades;
+DROP TABLE IF EXISTS positions;
+DROP TABLE IF EXISTS deals;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS import_jobs;
+DROP TABLE IF EXISTS imported_files;
+DROP TABLE IF EXISTS trading_accounts;
+
+DROP TYPE IF EXISTS image_status;
+DROP TYPE IF EXISTS emotion;
+DROP TYPE IF EXISTS tag_owner;
+DROP TYPE IF EXISTS trade_outcome;
+DROP TYPE IF EXISTS trade_direction;
+DROP TYPE IF EXISTS position_state;
+DROP TYPE IF EXISTS deal_entry_exit;
+DROP TYPE IF EXISTS deal_type;
+DROP TYPE IF EXISTS import_status;
+DROP TYPE IF EXISTS import_format;
+DROP TYPE IF EXISTS account_kind;
+DROP TYPE IF EXISTS account_broker;
