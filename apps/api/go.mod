@@ -25,6 +25,7 @@ require (
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/signintech/gopdf v0.38.1 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
+	github.com/stripe/stripe-go/v76 v76.25.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
