@@ -17,6 +17,8 @@ import (
 	"github.com/trading-journal/api/internal/domain/imported_file"
 	"github.com/trading-journal/api/internal/domain/position"
 	"github.com/trading-journal/api/internal/domain/trade"
+	whdomain "github.com/trading-journal/api/internal/domain/webhook"
+	whsvc "github.com/trading-journal/api/internal/integration/webhook"
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/parser"
 	"github.com/trading-journal/api/internal/store"
@@ -27,9 +29,10 @@ import (
 // Upload → Validate → Hash → Detect Format → Parse → Normalize →
 // Validate → Deduplicate → Persist → Calculate Metrics → Complete
 type ImportService struct {
-	store *store.Store
-	log   *slog.Logger
-	pool  *worker.Pool
+	store      *store.Store
+	log        *slog.Logger
+	pool       *worker.Pool
+	webhookSvc whsvc.Service // Phase 5.2 — optional; nil = no events
 }
 
 func NewImportService(st *store.Store, log *slog.Logger) *ImportService {
@@ -38,6 +41,10 @@ func NewImportService(st *store.Store, log *slog.Logger) *ImportService {
 
 // AttachPool wires a worker.Pool so Enqueue() can push jobs.
 func (s *ImportService) AttachPool(p *worker.Pool) { s.pool = p }
+
+// AttachWebhookService wires the webhook emitter. Caller owns the
+// lifetime; pass nil to disable events.
+func (s *ImportService) AttachWebhookService(w whsvc.Service) { s.webhookSvc = w }
 
 type ImportInput struct {
 	TenantID         uuid.UUID
@@ -334,10 +341,58 @@ func (s *ImportService) RunPipeline(ctx context.Context, jobID uuid.UUID, in Imp
 		},
 	})
 
+	// Phase 5.2 — emit webhook events (best-effort; failures don't fail
+	// the import).
+	s.emitWebhookEvents(ctx, in, jobID, tradeDTOs, parsed, inserted, skipped)
+
 	return &ImportResult{
 		ImportedFile: f,
 		Stats:        ImportStats{Parsed: parsed, Inserted: inserted, Skipped: skipped, TradeCount: len(tradeDTOs)},
 	}, tradeDTOs, nil
+}
+
+// emitWebhookEvents fires `import.completed` once and one `trade.created`
+// per newly-inserted trade. All Emit calls are best-effort: errors are
+// logged at WARN and never block the import.
+func (s *ImportService) emitWebhookEvents(ctx context.Context, in ImportInput, jobID uuid.UUID, trades []TradeDTO, parsed, inserted, skipped int) {
+	if s.webhookSvc == nil {
+		return
+	}
+	if err := s.webhookSvc.Emit(ctx, whsvc.EmitInput{
+		TenantID:  in.TenantID,
+		EventType: whdomain.EventImportCompleted,
+		Data: map[string]any{
+			"import_job_id":      jobID,
+			"trading_account_id": in.TradingAccountID,
+			"deals_parsed":       parsed,
+			"deals_inserted":     inserted,
+			"deals_skipped":      skipped,
+			"trades_derived":     len(trades),
+		},
+	}); err != nil {
+		s.log.Warn("webhook emit import.completed failed",
+			slog.String("err", err.Error()))
+	}
+	for _, t := range trades {
+		if err := s.webhookSvc.Emit(ctx, whsvc.EmitInput{
+			TenantID:  in.TenantID,
+			EventType: whdomain.EventTradeCreated,
+			Data: map[string]any{
+				"trade_id":           t.ID,
+				"trading_account_id": in.TradingAccountID,
+				"symbol":             t.Symbol,
+				"direction":          t.Direction,
+				"open_time":          t.OpenTime,
+				"close_time":         t.CloseTime,
+				"net_pl":             t.NetPL,
+				"outcome":            t.Outcome,
+			},
+		}); err != nil {
+			s.log.Warn("webhook emit trade.created failed",
+				slog.String("trade_id", t.ID.String()),
+				slog.String("err", err.Error()))
+		}
+	}
 }
 
 // Run is the synchronous entrypoint (still exported for sync fallback).
