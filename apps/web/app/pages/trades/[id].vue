@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// /trades/:id — trade detail page (Phase 1 spec §23)
+// /trades/:id — trade detail page (Phase 1 spec §23) — extended w/ journal, tags, screenshots
 import { ref, onMounted, computed } from 'vue'
 import { useTrades } from '~/composables/useTrades'
 import type { Trade } from '@trading-journal/shared'
@@ -82,10 +82,8 @@ function fmtNum(n: number | null, d = 5) {
               </tbody>
             </v-table>
           </v-card>
-        </v-col>
 
-        <v-col cols="12" md="6">
-          <v-card variant="outlined" class="pa-4">
+          <v-card variant="outlined" class="pa-4 mt-4">
             <h2 class="text-h6 mb-3">P/L breakdown</h2>
             <v-table density="compact">
               <tbody>
@@ -98,13 +96,12 @@ function fmtNum(n: number | null, d = 5) {
               </tbody>
             </v-table>
           </v-card>
+        </v-col>
 
-          <v-card variant="outlined" class="pa-4 mt-4">
-            <h2 class="text-h6 mb-3">Notes</h2>
-            <v-alert type="info" variant="tonal">
-              Journal entries, tags & screenshots land when Cloudinary + journal endpoints are wired.
-            </v-alert>
-          </v-card>
+        <v-col cols="12" md="6">
+          <ImageGrid :trade-id="trade.id" class="mb-4" />
+          <TagPicker :trade-id="trade.id" class="mb-4" />
+          <JournalEditor :trade-id="trade.id" />
         </v-col>
       </v-row>
     </div>
