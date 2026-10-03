@@ -14,6 +14,7 @@ import (
 
 	"github.com/trading-journal/api/internal/auth"
 	"github.com/trading-journal/api/internal/domain/trading_account"
+	"github.com/trading-journal/api/internal/entitlement"
 	"github.com/trading-journal/api/internal/integration/cloudinary"
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/service"
@@ -296,6 +297,93 @@ func (h *Handler) SymbolBreakdown(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"symbols": rows})
 }
 
+// SessionBreakdown — GET /v1/analytics/session?account_id=
+//
+// Aggregates net P/L and win rate by FX trading session (asia / london /
+// newyork / sydney). Phase 3 — sessions overlap; buckets are independent.
+func (h *Handler) SessionBreakdown(c echo.Context) error {
+	_, tid, ok := idsFromCtx(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, observability.FromError(observability.ErrUnauthorized))
+	}
+	accountID, err := parseAccountID(c)
+	if err != nil {
+		return c.JSON(http.StatusUnprocessableEntity, observability.FromError(err))
+	}
+	rows, err := h.store.Trades.SessionBreakdown(c.Request().Context(), tid, accountID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"sessions": rows})
+}
+
+// EABreakdown — GET /v1/analytics/ea?account_id=
+//
+// Aggregates by MT5 magic (EA identifier). magic=0 is "Manual trades".
+func (h *Handler) EABreakdown(c echo.Context) error {
+	_, tid, ok := idsFromCtx(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, observability.FromError(observability.ErrUnauthorized))
+	}
+	accountID, err := parseAccountID(c)
+	if err != nil {
+		return c.JSON(http.StatusUnprocessableEntity, observability.FromError(err))
+	}
+	rows, err := h.store.Trades.EABreakdown(c.Request().Context(), tid, accountID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"eas": rows})
+}
+
+// DayOfWeekBreakdown — GET /v1/analytics/day-of-week?account_id=
+func (h *Handler) DayOfWeekBreakdown(c echo.Context) error {
+	_, tid, ok := idsFromCtx(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, observability.FromError(observability.ErrUnauthorized))
+	}
+	accountID, err := parseAccountID(c)
+	if err != nil {
+		return c.JSON(http.StatusUnprocessableEntity, observability.FromError(err))
+	}
+	rows, err := h.store.Trades.DayOfWeekBreakdown(c.Request().Context(), tid, accountID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"weekdays": rows})
+}
+
+// HourOfDayBreakdown — GET /v1/analytics/hour-of-day?account_id=
+func (h *Handler) HourOfDayBreakdown(c echo.Context) error {
+	_, tid, ok := idsFromCtx(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, observability.FromError(observability.ErrUnauthorized))
+	}
+	accountID, err := parseAccountID(c)
+	if err != nil {
+		return c.JSON(http.StatusUnprocessableEntity, observability.FromError(err))
+	}
+	rows, err := h.store.Trades.HourOfDayBreakdown(c.Request().Context(), tid, accountID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"hours": rows})
+}
+
+// parseAccountID extracts the optional ?account_id= query param. Centralized
+// here so the 4 new analytics handlers stay tiny.
+func parseAccountID(c echo.Context) (*uuid.UUID, error) {
+	s := c.QueryParam("account_id")
+	if s == "" {
+		return nil, nil
+	}
+	id, err := uuid.FromString(s)
+	if err != nil {
+		return nil, observability.ErrValidation.WithDetails(map[string]any{"reason": "invalid account_id"})
+	}
+	return &id, nil
+}
+
 // ── Trading accounts ──────────────────────────────────────────────────
 
 // ListAccounts — GET /v1/accounts
@@ -312,6 +400,10 @@ func (h *Handler) ListAccounts(c echo.Context) error {
 }
 
 // CreateAccount — POST /v1/accounts
+//
+// Phase 3: enforces the tenant's plan limit (max-trading-accounts) before
+// creating. New tenants on 'free' get 1 account; 'pro' gets 5. The lookup
+// is best-effort — an unparseable plan defaults to free limits (least privilege).
 func (h *Handler) CreateAccount(c echo.Context) error {
 	uid, tid, ok := idsFromCtx(c)
 	if !ok {
@@ -341,6 +433,25 @@ func (h *Handler) CreateAccount(c echo.Context) error {
 	if kind == "" {
 		kind = "real"
 	}
+
+	// Plan limit check (Phase 3 §2.2)
+	code, limits := entitlement.LookupForTenant(c.Request().Context(), h.store, tid)
+	current, err := h.store.TradingAccounts.CountByTenant(c.Request().Context(), tid)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	if current >= int64(limits.MaxTradingAccounts) {
+		return c.JSON(http.StatusPaymentRequired, observability.FromError(
+			observability.ErrValidation.WithDetails(map[string]any{
+				"reason":               "plan_limit_reached",
+				"resource":             "trading_accounts",
+				"limit":                limits.MaxTradingAccounts,
+				"current":              current,
+				"plan":                 string(code),
+				"upgrade_required":     true,
+			})))
+	}
+
 	a := &trading_account.TradingAccount{
 		ID:              uuid.Must(uuid.NewV7()),
 		UserID:          uid,

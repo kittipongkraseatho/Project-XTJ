@@ -157,6 +157,10 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.GET("/analytics/daily-pl", p1.DailyPL)
 	authed.GET("/analytics/equity-curve", p1.EquityCurve)
 	authed.GET("/analytics/symbol-breakdown", p1.SymbolBreakdown)
+	authed.GET("/analytics/session", p1.SessionBreakdown)
+	authed.GET("/analytics/ea", p1.EABreakdown)
+	authed.GET("/analytics/day-of-week", p1.DayOfWeekBreakdown)
+	authed.GET("/analytics/hour-of-day", p1.HourOfDayBreakdown)
 
 	// Phase 1 — journal, tags, images (auth + tenant scoped)
 	authed.GET("/trades/:id/journal", p1.GetJournal)
