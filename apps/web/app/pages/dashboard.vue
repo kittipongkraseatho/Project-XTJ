@@ -127,6 +127,8 @@ function fmtPct(n: number) {
       <v-btn color="primary" to="/imports">Upload MT5 file</v-btn>
     </v-card>
 
+    <SyncStatusCard class="mt-6" />
+
     <v-card class="mt-6 pa-4 text-center" variant="outlined">
       <v-btn variant="outlined" color="error" prepend-icon="mdi-logout" @click="onLogout">Logout</v-btn>
     </v-card>
