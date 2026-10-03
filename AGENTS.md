@@ -12,18 +12,20 @@
 
 ## Current phase
 
-**Phase 2 complete. Phase 3 not started.**
+**Phase 3 complete. Phase 4 not started.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
 - Phase 2 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase2-design.md` — Mock broker sync ✅ shipped
+- Phase 3 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase3-design.md` — Multi-account + Session/EA/Magic + PDF ✅ shipped
 
-**Phase 2 in scope (delivered):** 2 tables (`broker_connections` + `sync_runs`) + 4 enums · `broker.Provider` interface + `MockProvider` (deterministic seed, 1-3/day) + `Registry` · `syncsvc.SyncService` reusing ImportService dedup · `worker.SyncWorker` (poll + manual enqueue, single-flight) · 8 HTTP endpoints under `/v1/brokers/*` · `/accounts` broker connection UI + sync history · dashboard `SyncStatusCard`.
+**Phase 3 in scope (delivered):** no new tables (aggregations on existing `trades` + `trading_accounts`) · `entitlement` package + plan-limit on CreateAccount (free=1, pro=5 trading accounts) · 4 new analytics endpoints (`/v1/analytics/{session,ea,day-of-week,hour-of-day}`) · `pdfreport` service (signintech/fpdf impl + stub) · `POST /v1/reports/pdf` · FE: dashboard account-selector + per-account cards · 4 new analytics components (SessionBreakdown, EABreakdown, DayOfWeek, HourOfDayHeatmap) · `useReports` composable + PDF download button on `/accounts`.
 
 **Out of scope (defer to later phases):**
 - Real MetaApi SDK adapter (interface ready; one file swap later)
-- Multi-account dashboard · session/EA/magic analysis · PDF reports (Phase 3)
-- Billing automation · Stripe/Omise · AI analysis (Phase 4)
+- Billing automation · Stripe/Omise (Phase 4)
+- AI analysis (Phase 4)
+- Public API + email report scheduling (Phase 4)
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -55,6 +57,8 @@
 - **PWA:** `@vite-pwa/nuxt`. `autoUpdate`. Icons in `public/icons/`. Manifest aligns with dark palette.
 - **i18n:** English-only in Phase 0–3. Thai copy inline as needed; full i18n in Phase 4.
 - **Broker sync (Phase 2):** `Provider` interface in `internal/integration/broker/`. Mock implementation only — MetaApi SDK deferred. SyncWorker reuses the Phase 1 worker.Pool; SyncService reuses `dealRepo.Insert` for dedup (single source of truth for both manual uploads and broker syncs).
+- **Plan limits (Phase 3):** `internal/entitlement/limits_by_plan.go` maps `plan.Code` to `Limits{MaxTradingAccounts, MaxBrokerConnections}`. Handlers (`CreateAccount`, `CreateConnection`) call `entitlement.LookupForTenant(ctx, store, tenantID)` and 402 on overflow.
+- **PDF reports (Phase 3):** `pdfreport.Service` interface in `internal/integration/pdfreport/`. Implementation uses `go-pdf/fpdf` (pure Go, MIT, built-in PDF base 14 fonts — no TTF payload bundled).
 - **Tests:** Vitest + `@vue/test-utils` for unit, Playwright for E2E.
 
 ### Cross-stack
@@ -71,6 +75,7 @@
 | Phase 0 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` |
 | Phase 1 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` |
 | Phase 2 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase2-design.md` |
+| Phase 3 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase3-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
 | Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2) |
 | sqlc queries | `apps/api/queries/` |
@@ -79,14 +84,18 @@
 | Middleware chain | `apps/api/internal/server/` |
 | OAuth providers | `apps/api/internal/integration/oauth/` |
 | Broker providers | `apps/api/internal/integration/broker/` |
+| PDF reports | `apps/api/internal/integration/pdfreport/` |
 | MT5 parser | `apps/api/internal/parser/` |
 | Worker pool | `apps/api/internal/worker/` |
 | SyncService | `apps/api/internal/syncsvc/` |
+| Plan limits | `apps/api/internal/entitlement/` |
 | Cloudinary integration | `apps/api/internal/integration/cloudinary/` |
 | Phase 1 handlers | `apps/api/internal/httpapi/phase1/` |
 | Phase 2 handlers | `apps/api/internal/httpapi/phase2/` |
+| Phase 3 handlers | `apps/api/internal/httpapi/phase3/` |
 | Phase 1 store repos | `apps/api/internal/store/phase1_repos.go` |
 | Phase 2 store repos | `apps/api/internal/store/phase2_repos.go` |
+| Phase 3 store repos | `apps/api/internal/store/phase3_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
@@ -101,6 +110,8 @@
 - **Adding a new endpoint:** `internal/httpapi/<area>/handler.go` (Echo handler) → `internal/httpapi/<area>/dto.go` (request/response types) → `internal/service/<area>/<usecase>.go` (orchestration) → `internal/store/<table>.sql` (sqlc query) → `internal/store/<table>.go` (thin wrapper). Add route to `internal/server/router.go`.
 - **Adding a new OAuth provider:** Implement `internal/integration/oauth/provider.go` `Provider` interface → register in `internal/integration/oauth/registry.go` if env vars set.
 - **Adding a new broker provider (Phase 2+):** Implement `internal/integration/broker/provider.go` `Provider` interface (Name / Connect / Disconnect / FetchDeals / Ping) → register in `router.go` registry map. Return canonical `broker.Deal` shape (minor units, UUIDv5 stable `ProviderDealID`) so SyncService's dedup contract holds without changes.
+- **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
+- **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
 - **Adding a new plan:** insert row in `plans` migration (or admin endpoint Phase 0 deferred to Phase 4).
 - **Adding a new role:** extend `membership_role` enum in new migration, update RBAC matrix in spec §7.4, update `RequireRole()` middleware.
