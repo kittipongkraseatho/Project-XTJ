@@ -485,6 +485,64 @@ func intToStr(n int) string {
 	return string(b)
 }
 
+// SymbolBreakdown returns per-symbol aggregated KPIs.
+func (r *TradeRepo) SymbolBreakdown(ctx context.Context, tenantID uuid.UUID, accountID *uuid.UUID) ([]map[string]any, error) {
+	q := `
+		SELECT
+		  symbol,
+		  COUNT(*) AS trade_count,
+		  COALESCE(SUM(net_p_l), 0) AS net_p_l,
+		  COALESCE(SUM(gross_profit), 0) AS gross_profit,
+		  COALESCE(SUM(gross_loss), 0) AS gross_loss,
+		  COUNT(*) FILTER (WHERE outcome = 'win') AS wins,
+		  COUNT(*) FILTER (WHERE outcome = 'loss') AS losses
+		FROM trades
+		WHERE tenant_id = $1 AND close_time IS NOT NULL`
+	args := []any{tenantID}
+	if accountID != nil {
+		q += ` AND trading_account_id = $2`
+		args = append(args, *accountID)
+	}
+	q += ` GROUP BY symbol ORDER BY net_p_l DESC`
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var symbol string
+		var count int64
+		var netPL, grossProfit, grossLoss float64
+		var wins, losses int64
+		if err := rows.Scan(&symbol, &count, &netPL, &grossProfit, &grossLoss, &wins, &losses); err != nil {
+			return nil, err
+		}
+		winRate := 0.0
+		if count > 0 {
+			winRate = float64(wins) / float64(count)
+		}
+		avgWin, avgLoss := 0.0, 0.0
+		if wins > 0 {
+			avgWin = grossProfit / float64(wins)
+		}
+		if losses > 0 {
+			avgLoss = grossLoss / float64(losses)
+		}
+		out = append(out, map[string]any{
+			"symbol":    symbol,
+			"count":     count,
+			"net_p_l":   netPL,
+			"wins":      wins,
+			"losses":    losses,
+			"win_rate":  winRate,
+			"avg_win":   avgWin,
+			"avg_loss":  avgLoss,
+		})
+	}
+	return out, rows.Err()
+}
+
 // fmtSprintfOrder is a tiny helper that appends LIMIT/OFFSET args in order.
 // Kept in this file to avoid pulling fmt into the whole package when not needed.
 func fmtSprintfOrder(limit, offset, baseIdx int) string {

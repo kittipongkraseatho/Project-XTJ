@@ -17,11 +17,13 @@ import (
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/service"
 	"github.com/trading-journal/api/internal/store"
+	"github.com/trading-journal/api/internal/worker"
 )
 
 // RegisterRoutes mounts every endpoint under /v1 + the system endpoints.
 //
 // Phase 0 + Phase 1 endpoints (all real):
+//
 //   - GET  /healthz / /livez / /readyz
 //   - POST /v1/auth/register         (public, IP-rate-limited)
 //   - POST /v1/auth/login            (public, IP-rate-limited)
@@ -30,15 +32,26 @@ import (
 //   - GET  /v1/auth/oauth/:provider/callback  (public)
 //   - POST /v1/auth/logout           (auth required)
 //   - GET  /v1/me                    (auth required)
-//   - POST /v1/imports               (auth required, multipart)
+//   - POST /v1/imports               (auth required, multipart, async via worker)
 //   - GET  /v1/imports               (auth required)
 //   - GET  /v1/accounts              (auth required)
 //   - POST /v1/accounts              (auth required)
 //   - GET  /v1/trades                (auth required)
 //   - GET  /v1/trades/:id            (auth required)
-//   - GET  /v1/analytics/overview    (auth required)
-//   - GET  /v1/analytics/daily-pl    (auth required)
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *observability.RateLimiter, cfg *config.Config, logger *slog.Logger) {
+//   - GET  /v1/trades/:id/journal    (auth required)
+//   - PUT  /v1/trades/:id/journal    (auth required)
+//   - GET  /v1/trades/:id/tags       (auth required)
+//   - PUT  /v1/trades/:id/tags       (auth required)
+//   - GET  /v1/trades/:id/images     (auth required)
+//   - POST /v1/trades/:id/images     (auth required, multipart, Cloudinary)
+//   - GET  /v1/tags                  (auth required)
+//   - POST /v1/tags                  (auth required)
+//   - DELETE /v1/tags/:id            (auth required)
+//   - GET  /v1/analytics/overview     (auth required)
+//   - GET  /v1/analytics/daily-pl     (auth required)
+//   - GET  /v1/analytics/equity-curve (auth required)
+//   - GET  /v1/analytics/symbol-breakdown (auth required, Phase 1 §30 advanced)
+func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *observability.RateLimiter, cfg *config.Config, logger *slog.Logger, workerPool *worker.Pool) {
 	// System endpoints (no auth, no rate limit)
 	e.GET("/healthz", Healthz())
 	e.GET("/livez", Healthz())
@@ -70,6 +83,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	oauthFlow := oauth.NewFlow(cfg, st, registry, jwtSvc, logger)
 	oauthH := authhttp.NewOAuthHandlers(oauthFlow, logger)
 	importSvc := service.NewImportService(st, logger)
+	importSvc.AttachPool(workerPool) // bg async; nil-safe fallback
 
 	var cldSvc cloudinary.Service = cloudinary.StubService{}
 	if cfg.CloudinaryEnabled() {
@@ -113,6 +127,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.GET("/analytics/overview", p1.OverviewAnalytics)
 	authed.GET("/analytics/daily-pl", p1.DailyPL)
 	authed.GET("/analytics/equity-curve", p1.EquityCurve)
+	authed.GET("/analytics/symbol-breakdown", p1.SymbolBreakdown)
 
 	// Phase 1 — journal, tags, images (auth + tenant scoped)
 	authed.GET("/trades/:id/journal", p1.GetJournal)

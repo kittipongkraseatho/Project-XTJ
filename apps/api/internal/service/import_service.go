@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -19,23 +20,25 @@ import (
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/parser"
 	"github.com/trading-journal/api/internal/store"
+	"github.com/trading-journal/api/internal/worker"
 )
 
 // ImportService orchestrates the import flow per spec §11:
 // Upload → Validate → Hash → Detect Format → Parse → Normalize →
 // Validate → Deduplicate → Persist → Calculate Metrics → Complete
-//
-// Phase 1: runs synchronously after upload (no background worker yet).
 type ImportService struct {
 	store *store.Store
 	log   *slog.Logger
+	pool  *worker.Pool
 }
 
 func NewImportService(st *store.Store, log *slog.Logger) *ImportService {
 	return &ImportService{store: st, log: log}
 }
 
-// ImportInput is the upload payload from the FE.
+// AttachPool wires a worker.Pool so Enqueue() can push jobs.
+func (s *ImportService) AttachPool(p *worker.Pool) { s.pool = p }
+
 type ImportInput struct {
 	TenantID         uuid.UUID
 	UserID           uuid.UUID
@@ -45,15 +48,16 @@ type ImportInput struct {
 	Content          []byte
 }
 
-// ImportResult is the response sent to FE.
-type ImportResult struct {
-	ImportedFile *imported_file.ImportedFile `json:"imported_file"`
-	ImportJob    *import_job.ImportJob       `json:"import_job"`
-	Trades       []TradeDTO                  `json:"trades"`
-	Stats        ImportStats                 `json:"stats"`
+type TradeDTO struct {
+	ID        uuid.UUID `json:"id"`
+	Symbol    string    `json:"symbol"`
+	Direction string    `json:"direction"`
+	OpenTime  time.Time `json:"open_time"`
+	CloseTime time.Time `json:"close_time"`
+	NetPL     float64   `json:"net_p_l"`
+	Outcome   string    `json:"outcome"`
 }
 
-// ImportStats summarizes the run.
 type ImportStats struct {
 	Parsed     int `json:"parsed"`
 	Inserted   int `json:"inserted"`
@@ -61,37 +65,35 @@ type ImportStats struct {
 	TradeCount int `json:"trade_count"`
 }
 
-// TradeDTO is a slim representation of the inserted trade for FE display.
-type TradeDTO struct {
-	ID         uuid.UUID `json:"id"`
-	Symbol     string    `json:"symbol"`
-	Direction  string    `json:"direction"`
-	OpenTime   time.Time `json:"open_time"`
-	CloseTime  time.Time `json:"close_time"`
-	NetPL      float64   `json:"net_p_l"`
-	Outcome    string    `json:"outcome"`
+type ImportResult struct {
+	ImportedFile *imported_file.ImportedFile `json:"imported_file"`
+	ImportJob    *import_job.ImportJob       `json:"import_job"`
+	Trades       []TradeDTO                  `json:"trades"`
+	Stats        ImportStats                 `json:"stats"`
 }
 
-// Run executes the full import pipeline.
-func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult, error) {
-	// 1. Hash + dedup check
+// ── Async entrypoint (Phase 1 §10 step 17) ────────────────────────────
+
+// Enqueue runs the dedup + format-detect + row-creation synchronously (so we
+// can return 201 + import_job_id immediately), then queues the heavy work to
+// the worker pool. Returns the queued job + import_file records; trades arrive
+// later via polling /v1/trades.
+//
+// If no pool is attached, falls back to synchronous Run() (dev mode).
+func (s *ImportService) Enqueue(ctx context.Context, in ImportInput) (*ImportResult, error) {
+	// Phase 1: hash + dedup check (synchronous, fast)
 	sum := sha256.Sum256(in.Content)
 	hash := hex.EncodeToString(sum[:])
-
 	if existing, err := s.store.ImportedFiles.GetByContentHash(ctx, in.TenantID, hash); err == nil {
-		// Duplicate — return existing record + 0 new rows
 		job, _ := s.store.ImportJobs.GetByID(ctx, existing.ID)
-		_ = job
-		return &ImportResult{ImportedFile: existing, Stats: ImportStats{}}, nil
+		return &ImportResult{ImportedFile: existing, ImportJob: job, Trades: []TradeDTO{}, Stats: ImportStats{}}, nil
 	}
 
-	// 2. Validate format
 	format := parser.Detect(in.Content)
 	if format == parser.FormatUnknown {
 		return nil, observability.ErrValidation.WithDetails(map[string]any{"reason": "unknown file format"})
 	}
 
-	// 3. Persist imported_files
 	f := &imported_file.ImportedFile{
 		ID:               uuid.Must(uuid.NewV7()),
 		TenantID:         in.TenantID,
@@ -105,15 +107,14 @@ func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult,
 	}
 	if err := s.store.ImportedFiles.Create(ctx, f); err != nil {
 		if store.IsUniqueViolation(err) {
-			// Race: someone else inserted with the same hash just now. Re-fetch.
 			if existing, ferr := s.store.ImportedFiles.GetByContentHash(ctx, in.TenantID, hash); ferr == nil {
-				return &ImportResult{ImportedFile: existing, Stats: ImportStats{}}, nil
+				job, _ := s.store.ImportJobs.GetByID(ctx, existing.ID)
+				return &ImportResult{ImportedFile: existing, ImportJob: job}, nil
 			}
 		}
 		return nil, fmt.Errorf("insert imported_file: %w", err)
 	}
 
-	// 4. Create import_job
 	job := &import_job.ImportJob{
 		ID:             uuid.Must(uuid.NewV7()),
 		TenantID:       in.TenantID,
@@ -124,9 +125,60 @@ func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult,
 	if err := s.store.ImportJobs.Create(ctx, job); err != nil {
 		return nil, fmt.Errorf("insert import_job: %w", err)
 	}
-	_ = s.store.ImportJobs.MarkRunning(ctx, job.ID)
 
-	// 5. Parse
+	// If worker pool not wired, do synchronous fallback.
+	if s.pool == nil {
+		_ = s.store.ImportJobs.MarkRunning(ctx, job.ID)
+		_, _, err := s.RunPipeline(ctx, job.ID, in, f, format)
+		if err != nil {
+			return nil, err
+		}
+		// Reload to get final state.
+		final, _ := s.store.ImportJobs.GetByID(ctx, job.ID)
+		return &ImportResult{ImportedFile: f, ImportJob: final, Trades: []TradeDTO{}}, nil
+	}
+
+	// Queue async work — capture the heavy stuff in a closure.
+	jobID := job.ID
+	fileID := f.ID
+	tenantID := in.TenantID
+	accountID := in.TradingAccountID
+	userID := in.UserID
+	filename := in.OriginalFilename
+	content := in.Content
+
+	payload := &worker.ImportJobPayload{
+		ImportJobID: jobID.String(),
+		Handler: func(ctx context.Context) error {
+			innerIn := ImportInput{
+				TenantID:         tenantID,
+				UserID:           userID,
+				TradingAccountID: accountID,
+				OriginalFilename: filename,
+				ByteSize:         int64(len(content)),
+				Content:          content,
+			}
+			f2, err := s.store.ImportedFiles.GetByContentHash(ctx, tenantID, hash)
+			if err != nil || f2 == nil {
+				return fmt.Errorf("imported_file %s not found", fileID)
+			}
+			detected := parser.Detect(content)
+			_, _, err = s.RunPipeline(ctx, jobID, innerIn, f2, detected)
+			return err
+		},
+	}
+	if err := s.pool.Enqueue(payload); err != nil {
+		return nil, fmt.Errorf("enqueue import: %w", err)
+	}
+
+	return &ImportResult{ImportedFile: f, ImportJob: job, Trades: []TradeDTO{}}, nil
+}
+
+// RunPipeline executes the parse + persist steps. Caller is responsible for
+// creating the import_job row + marking running.
+func (s *ImportService) RunPipeline(ctx context.Context, jobID uuid.UUID, in ImportInput, f *imported_file.ImportedFile, format parser.Format) (*ImportResult, []TradeDTO, error) {
+	_ = s.store.ImportJobs.MarkRunning(ctx, jobID)
+
 	var parseRes *parser.ParseResult
 	var parseErr error
 	switch format {
@@ -136,35 +188,31 @@ func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult,
 		parseRes, parseErr = parser.CSVParser{}.Parse(byteReader(in.Content))
 	}
 	if parseErr != nil {
-		_ = s.store.ImportJobs.MarkFailed(ctx, job.ID, parseErr.Error())
-		return nil, observability.ErrParseFailed.WithCause(parseErr)
+		_ = s.store.ImportJobs.MarkFailed(ctx, jobID, parseErr.Error())
+		return nil, nil, observability.ErrParseFailed.WithCause(parseErr)
 	}
 	if parseRes == nil || len(parseRes.Deals) == 0 {
-		_ = s.store.ImportJobs.MarkCompleted(ctx, job.ID, 0, 0, 0, []map[string]any{{"message": "no deals parsed"}})
-		return &ImportResult{ImportedFile: f, ImportJob: job, Trades: []TradeDTO{}, Stats: ImportStats{}}, nil
+		_ = s.store.ImportJobs.MarkCompleted(ctx, jobID, 0, 0, 0, []map[string]any{{"message": "no deals parsed"}})
+		return &ImportResult{ImportedFile: f, Stats: ImportStats{}}, nil, nil
 	}
 
-	// 6. Persist deals (with dedup via UNIQUE constraint + ON CONFLICT DO NOTHING)
 	parsed := len(parseRes.Deals)
-	inserted := 0
-	skipped := 0
-
+	inserted, skipped := 0, 0
 	var tradeDTOs []TradeDTO
 
-	if err := s.store.WithTx(ctx, func(tx pgx.Tx) error {
+	err := s.store.WithTx(ctx, func(tx pgx.Tx) error {
 		dealRepo := s.store.Deals.WithTx(tx)
 		tradeRepo := s.store.Trades.WithTx(tx)
 		positionRepo := s.store.Positions.WithTx(tx)
 
-		// Aggregate FIRST so we don't dedup the trades (we want the derived trades).
 		trades := parser.Aggregate(parseRes.Deals)
 
 		for _, pd := range parseRes.Deals {
 			d := &deal.Deal{
 				ID:               pd.ID,
 				TenantID:         in.TenantID,
-				TradingAccountID:  in.TradingAccountID,
-				ImportJobID:      &job.ID,
+				TradingAccountID: in.TradingAccountID,
+				ImportJobID:      &jobID,
 				ProviderDealID:   pd.ProviderDealID,
 				Symbol:           pd.Symbol,
 				Type:             deal.Type(pd.Type),
@@ -186,16 +234,14 @@ func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult,
 			if err != nil {
 				return fmt.Errorf("insert deal %s: %w", pd.ProviderDealID, err)
 			}
-			if !ok {
-				skipped++
-			} else {
+			if ok {
 				inserted++
+			} else {
+				skipped++
 			}
 		}
 
-		// Insert derived positions + trades
 		for _, t := range trades {
-			// Insert position
 			posID := uuid.Must(uuid.NewV7())
 			closeTime := t.CloseTime
 			openTime := t.OpenTime
@@ -251,7 +297,10 @@ func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult,
 				Magic:            t.Magic,
 				Outcome:          trade.Outcome(t.Outcome),
 				IsPartial:        t.IsPartial,
-				Metadata:         map[string]any{},
+				Metadata:         nil,
+			}
+			if tr.Metadata == nil {
+				tr.Metadata = map[string]any{}
 			}
 			if err := tradeRepo.Insert(ctx, tr); err != nil {
 				return fmt.Errorf("insert trade: %w", err)
@@ -268,17 +317,17 @@ func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult,
 		}
 
 		return nil
-	}); err != nil {
-		_ = s.store.ImportJobs.MarkFailed(ctx, job.ID, err.Error())
-		return nil, err
+	})
+	if err != nil {
+		_ = s.store.ImportJobs.MarkFailed(ctx, jobID, err.Error())
+		return nil, nil, err
 	}
 
-	// 7. Mark completed + audit
-	_ = s.store.ImportJobs.MarkCompleted(ctx, job.ID, parsed, inserted, skipped, parseErrorMaps(parseRes.Errors))
+	_ = s.store.ImportJobs.MarkCompleted(ctx, jobID, parsed, inserted, skipped, parseErrorMaps(parseRes.Errors))
 	_ = s.store.Audit.Insert(ctx, store.AuditEntry{
 		ActorUserID: &in.UserID, ActorTenantID: &in.TenantID,
 		Action: "import.completed",
-		ResourceType: strPtr("import_job"), ResourceID: &job.ID,
+		ResourceType: strPtr("import_job"), ResourceID: &jobID,
 		Metadata: map[string]any{
 			"parsed": parsed, "inserted": inserted, "skipped": skipped,
 			"trade_count": len(tradeDTOs),
@@ -287,20 +336,17 @@ func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult,
 
 	return &ImportResult{
 		ImportedFile: f,
-		ImportJob:    job,
-		Trades:       tradeDTOs,
-		Stats: ImportStats{
-			Parsed:     parsed,
-			Inserted:   inserted,
-			Skipped:    skipped,
-			TradeCount: len(tradeDTOs),
-		},
-	}, nil
+		Stats:        ImportStats{Parsed: parsed, Inserted: inserted, Skipped: skipped, TradeCount: len(tradeDTOs)},
+	}, tradeDTOs, nil
+}
+
+// Run is the synchronous entrypoint (still exported for sync fallback).
+func (s *ImportService) Run(ctx context.Context, in ImportInput) (*ImportResult, error) {
+	return s.Enqueue(ctx, in)
 }
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-// byteReader adapts a []byte to io.Reader (cheap adapter).
 func byteReader(b []byte) *bytesReader { return &bytesReader{b: b} }
 
 type bytesReader struct {
@@ -310,19 +356,16 @@ type bytesReader struct {
 
 func (r *bytesReader) Read(p []byte) (int, error) {
 	if r.i >= len(r.b) {
-		return 0, ioEOF
+		return 0, errEOFIm{}
 	}
 	n := copy(p, r.b[r.i:])
 	r.i += n
 	return n, nil
 }
 
-// ioEOF alias to keep this file self-contained.
-var ioEOF = errEOF{}
+type errEOFIm struct{}
 
-type errEOF struct{}
-
-func (errEOF) Error() string { return "EOF" }
+func (errEOFIm) Error() string { return "EOF" }
 
 func importedFileFormat(s string) imported_file.Format {
 	switch s {
@@ -344,3 +387,6 @@ func parseErrorMaps(errs []parser.ParseError) []map[string]any {
 }
 
 func strPtr(s string) *string { return &s }
+
+var _ = errors.Is
+var _ = time.Second

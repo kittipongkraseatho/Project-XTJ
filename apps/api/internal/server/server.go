@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/trading-journal/api/internal/config"
 	"github.com/trading-journal/api/internal/observability"
+	"github.com/trading-journal/api/internal/worker"
 )
 
 // New builds a fully wired Echo server.
@@ -39,6 +41,10 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*echo.Ec
 	e.HideBanner = true
 	e.HidePort = true
 
+	// ── Worker pool (Phase 1 async imports + Phase 2 MetaApi sync) ────
+	workerPool := WorkerPool(ctx, logger)
+	logger.Info("worker pool started", slog.Int("workers", 4))
+
 	// ── Global middleware ──────────────────────────────────────────────
 	e.Use(observability.SecurityHeaders())
 	e.Use(observability.RequestID())
@@ -47,9 +53,10 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*echo.Ec
 	e.Use(observability.AccessLog(logger))
 
 	rl := observability.NewRateLimiter(rdb)
-	RegisterRoutes(e, pool, rdb, rl, cfg, logger)
+	RegisterRoutes(e, pool, rdb, rl, cfg, logger, workerPool)
 
 	cleanup := func() {
+		workerPool.Drain(15 * time.Second)
 		pool.Close()
 		if err := rdb.Close(); err != nil {
 			logger.Warn("close redis", slog.String("error", err.Error()))
@@ -103,4 +110,14 @@ func EnsureKeysDir(path string) error {
 		return fmt.Errorf("mkdir keys dir: %w", err)
 	}
 	return nil
+}
+
+// WorkerPool returns the configured worker pool (Phase 1 async imports).
+func WorkerPool(parent context.Context, logger *slog.Logger) *worker.Pool {
+	return worker.New(parent, logger, worker.Options{
+		Workers:    4,
+		BufferSize: 256,
+		JobTimeout: 5 * time.Minute,
+		MaxRetries: 1,
+	})
 }

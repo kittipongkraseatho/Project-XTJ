@@ -274,6 +274,28 @@ func (h *Handler) EquityCurve(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"equity_curve": rows})
 }
 
+// SymbolBreakdown — GET /v1/analytics/symbol-breakdown?account_id=
+func (h *Handler) SymbolBreakdown(c echo.Context) error {
+	_, tid, ok := idsFromCtx(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, observability.FromError(observability.ErrUnauthorized))
+	}
+	var accountID *uuid.UUID
+	if s := c.QueryParam("account_id"); s != "" {
+		id, err := uuid.FromString(s)
+		if err != nil {
+			return c.JSON(http.StatusUnprocessableEntity, observability.FromError(
+				observability.ErrValidation.WithDetails(map[string]any{"reason": "invalid account_id"})))
+		}
+		accountID = &id
+	}
+	rows, err := h.store.Trades.SymbolBreakdown(c.Request().Context(), tid, accountID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"symbols": rows})
+}
+
 // ── Trading accounts ──────────────────────────────────────────────────
 
 // ListAccounts — GET /v1/accounts
