@@ -12,6 +12,7 @@ import (
 	authhttp "github.com/trading-journal/api/internal/httpapi/auth"
 	mehttp "github.com/trading-journal/api/internal/httpapi/me"
 	phase1http "github.com/trading-journal/api/internal/httpapi/phase1"
+	"github.com/trading-journal/api/internal/integration/cloudinary"
 	"github.com/trading-journal/api/internal/integration/oauth"
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/service"
@@ -69,7 +70,21 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	oauthFlow := oauth.NewFlow(cfg, st, registry, jwtSvc, logger)
 	oauthH := authhttp.NewOAuthHandlers(oauthFlow, logger)
 	importSvc := service.NewImportService(st, logger)
-	p1 := phase1http.New(st, importSvc, logger)
+
+	var cldSvc cloudinary.Service = cloudinary.StubService{}
+	if cfg.CloudinaryEnabled() {
+		cs, err := cloudinary.New(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret)
+		if err != nil {
+			logger.Error("init cloudinary", slog.String("error", err.Error()))
+			panic(err)
+		}
+		cldSvc = cs
+		logger.Info("cloudinary enabled", slog.String("cloud_name", cfg.CloudinaryCloudName))
+	} else {
+		logger.Warn("cloudinary not configured (env CLOUDINARY_* missing) — image upload disabled")
+	}
+
+	p1 := phase1http.New(st, importSvc, cldSvc, logger)
 
 	v1 := e.Group("/v1")
 
@@ -97,4 +112,16 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.GET("/trades/:id", p1.GetTrade)
 	authed.GET("/analytics/overview", p1.OverviewAnalytics)
 	authed.GET("/analytics/daily-pl", p1.DailyPL)
+	authed.GET("/analytics/equity-curve", p1.EquityCurve)
+
+	// Phase 1 — journal, tags, images (auth + tenant scoped)
+	authed.GET("/trades/:id/journal", p1.GetJournal)
+	authed.PUT("/trades/:id/journal", p1.UpsertJournal)
+	authed.GET("/trades/:id/tags", p1.ListTradeTags)
+	authed.PUT("/trades/:id/tags", p1.SetTradeTags)
+	authed.GET("/trades/:id/images", p1.ListImages)
+	authed.POST("/trades/:id/images", p1.AttachImage)
+	authed.GET("/tags", p1.ListTags)
+	authed.POST("/tags", p1.CreateTag)
+	authed.DELETE("/tags/:id", p1.DeleteTag)
 }

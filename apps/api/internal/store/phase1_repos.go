@@ -435,6 +435,56 @@ func scanTrade(row pgx.Row) (*trade.Trade, error) {
 	return &t, nil
 }
 
+// EquityCurve returns per-trade equity series for charting.
+func (r *TradeRepo) EquityCurve(ctx context.Context, tenantID uuid.UUID, accountID *uuid.UUID, limit int) ([]map[string]any, error) {
+	q := `
+		SELECT
+		  to_char(close_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS closed_at,
+		  net_p_l,
+		  SUM(net_p_l) OVER (ORDER BY close_time ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS equity
+		FROM trades
+		WHERE tenant_id = $1 AND close_time IS NOT NULL`
+	args := []any{tenantID}
+	if accountID != nil {
+		q += ` AND trading_account_id = $2`
+		args = append(args, *accountID)
+	}
+	q += ` ORDER BY close_time ASC LIMIT $` + intToStr(len(args)+1)
+	args = append(args, limit)
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var closedAt string
+		var net, equity float64
+		if err := rows.Scan(&closedAt, &net, &equity); err != nil {
+			return nil, err
+		}
+		out = append(out, map[string]any{
+			"closed_at": closedAt,
+			"net_p_l":   net,
+			"equity":    equity,
+		})
+	}
+	return out, rows.Err()
+}
+
+func intToStr(n int) string {
+	const digits = "0123456789"
+	if n == 0 {
+		return "1"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{digits[n%10]}, b...)
+		n /= 10
+	}
+	return string(b)
+}
+
 // fmtSprintfOrder is a tiny helper that appends LIMIT/OFFSET args in order.
 // Kept in this file to avoid pulling fmt into the whole package when not needed.
 func fmtSprintfOrder(limit, offset, baseIdx int) string {

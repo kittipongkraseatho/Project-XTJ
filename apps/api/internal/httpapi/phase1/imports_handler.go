@@ -14,6 +14,7 @@ import (
 
 	"github.com/trading-journal/api/internal/auth"
 	"github.com/trading-journal/api/internal/domain/trading_account"
+	"github.com/trading-journal/api/internal/integration/cloudinary"
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/service"
 	"github.com/trading-journal/api/internal/store"
@@ -23,11 +24,12 @@ import (
 type Handler struct {
 	store      *store.Store
 	importSvc  *service.ImportService
+	cloudinary cloudinary.Service
 	log        *slog.Logger
 }
 
-func New(st *store.Store, importSvc *service.ImportService, log *slog.Logger) *Handler {
-	return &Handler{store: st, importSvc: importSvc, log: log}
+func New(st *store.Store, importSvc *service.ImportService, cld cloudinary.Service, log *slog.Logger) *Handler {
+	return &Handler{store: st, importSvc: importSvc, cloudinary: cld, log: log}
 }
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -242,6 +244,34 @@ func (h *Handler) DailyPL(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
 	}
 	return c.JSON(http.StatusOK, map[string]any{"daily": rows})
+}
+
+// EquityCurve — GET /v1/analytics/equity-curve?account_id=&limit=
+func (h *Handler) EquityCurve(c echo.Context) error {
+	_, tid, ok := idsFromCtx(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, observability.FromError(observability.ErrUnauthorized))
+	}
+	var accountID *uuid.UUID
+	if s := c.QueryParam("account_id"); s != "" {
+		id, err := uuid.FromString(s)
+		if err != nil {
+			return c.JSON(http.StatusUnprocessableEntity, observability.FromError(
+				observability.ErrValidation.WithDetails(map[string]any{"reason": "invalid account_id"})))
+		}
+		accountID = &id
+	}
+	limit := 100
+	if v := c.QueryParam("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	rows, err := h.store.Trades.EquityCurve(c.Request().Context(), tid, accountID, limit)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"equity_curve": rows})
 }
 
 // ── Trading accounts ──────────────────────────────────────────────────

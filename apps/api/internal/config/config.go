@@ -47,6 +47,12 @@ type Config struct {
 
 	// Public web origin (for OAuth callback completion redirect)
 	WebBaseURL string `envconfig:"WEB_BASE_URL" default:"http://localhost:3000"`
+
+	// Cloudinary (Phase 1 — trade screenshots)
+	CloudinaryCloudName string `envconfig:"CLOUDINARY_CLOUD_NAME"`
+	CloudinaryAPIKey    string `envconfig:"CLOUDINARY_API_KEY"`
+	CloudinaryAPISecret string `envconfig:"CLOUDINARY_API_SECRET"`
+	CloudinaryFolder    string `envconfig:"CLOUDINARY_FOLDER" default:"trading-journal"`
 }
 
 // Load reads env vars and returns a Config.
@@ -66,6 +72,11 @@ func (c *Config) GoogleOAuthEnabled() bool {
 // LineOAuthEnabled returns true iff both client_id and client_secret are set.
 func (c *Config) LineOAuthEnabled() bool {
 	return c.OAuthLineID != "" && c.OAuthLineSecret != ""
+}
+
+// CloudinaryEnabled returns true iff all 3 Cloudinary env vars are set.
+func (c *Config) CloudinaryEnabled() bool {
+	return c.CloudinaryCloudName != "" && c.CloudinaryAPIKey != "" && c.CloudinaryAPISecret != ""
 }
 
 // CORSAllowed returns the allowed origins as a set of strings (Echo expects []string).
