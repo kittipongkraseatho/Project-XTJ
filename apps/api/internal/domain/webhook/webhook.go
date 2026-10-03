@@ -99,11 +99,18 @@ var BackoffSchedule = []time.Duration{
 	12 * time.Hour,
 }
 
-// NextBackoff returns the wait duration before the next attempt. If the
-// current attempt already exhausted the schedule, returns ok=false.
+// NextBackoff returns the wait duration before the next attempt.
+//
+//	currentAttempt = 1 (just made attempt 1) → wait Backoff[0] = 1 minute
+//	currentAttempt = 5 → wait Backoff[4] = 12 hours
+//	currentAttempt = 6 → out of schedule, ok=false
+//	currentAttempt = 0 → invalid, ok=false
 func NextBackoff(currentAttempt int) (time.Duration, bool) {
-	idx := currentAttempt // 1-indexed; Backoff[0] is the wait AFTER attempt 1
-	if idx < 0 || idx >= len(BackoffSchedule) {
+	if currentAttempt < 1 {
+		return 0, false
+	}
+	idx := currentAttempt - 1
+	if idx >= len(BackoffSchedule) {
 		return 0, false
 	}
 	return BackoffSchedule[idx], true
