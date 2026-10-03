@@ -6,6 +6,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudinary/cloudinary-go/v2 v2.16.1 // indirect
 	github.com/creasty/defaults v1.7.0 // indirect
+	github.com/go-pdf/fpdf v0.9.0 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.5.0 // indirect
@@ -19,7 +20,10 @@ require (
 	github.com/labstack/gommon v0.5.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
+	github.com/phpdave11/gofpdi v1.0.14-0.20211212211723-1f10f9844311 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
+	github.com/signintech/gopdf v0.38.1 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
