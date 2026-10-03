@@ -1,14 +1,17 @@
 <script setup lang="ts">
-// /accounts — list trading accounts + broker connections (Phase 2).
+// /accounts — list trading accounts + broker connections (Phase 2) +
+// per-account PDF download (Phase 3).
 import { ref, onMounted, computed } from 'vue'
 import { useImports } from '~/composables/useImports'
 import { useBrokerConnections, type BrokerConnection, type SyncRun } from '~/composables/useBrokerConnections'
+import { useReports } from '~/composables/useReports'
 import type { TradingAccount } from '@trading-journal/shared'
 
 definePageMeta({ name: 'accounts' })
 
 const { listAccounts } = useImports()
 const { listConnections, createConnection, disconnect, deleteConnection, triggerSync, listSyncRuns } = useBrokerConnections()
+const { downloadPDF, saveBlob } = useReports()
 
 const accounts = ref<TradingAccount[]>([])
 const connections = ref<BrokerConnection[]>([])
@@ -138,6 +141,39 @@ async function openHistory(conn: BrokerConnection) {
     historyLoading.value = false
   }
 }
+
+// ── PDF download (Phase 3) ────────────────────────────────────────
+
+const pdfBusy = ref<Record<string, boolean>>({})
+const pdfError = ref<string | null>(null)
+
+function pdfRange(): { from: string; to: string } {
+  const now = new Date()
+  const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  return {
+    from: monthAgo.toISOString().slice(0, 10),
+    to: now.toISOString().slice(0, 10),
+  }
+}
+
+async function onDownloadPDF(a: TradingAccount) {
+  pdfError.value = null
+  pdfBusy.value = { ...pdfBusy.value, [a.id]: true }
+  try {
+    const r = pdfRange()
+    const blob = await downloadPDF({
+      trading_account_id: a.id,
+      from: r.from,
+      to: r.to,
+      include_equity_curve: true,
+    })
+    saveBlob(blob, `trading-journal_${a.display_name.replace(/\s+/g, '_')}_${r.from}_to_${r.to}.pdf`)
+  } catch (err: any) {
+    pdfError.value = err?.data?.error?.message ?? err?.message ?? 'PDF download failed.'
+  } finally {
+    pdfBusy.value = { ...pdfBusy.value, [a.id]: false }
+  }
+}
 </script>
 
 <template>
@@ -164,7 +200,7 @@ async function openHistory(conn: BrokerConnection) {
           <th>Currency</th>
           <th>Kind</th>
           <th>Created</th>
-          <th></th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -177,6 +213,15 @@ async function openHistory(conn: BrokerConnection) {
           <td class="text-caption">{{ new Date(a.created_at).toLocaleDateString() }}</td>
           <td>
             <v-btn variant="text" size="small" :to="`/imports?account_id=${a.id}`">Import</v-btn>
+            <v-btn
+              variant="text"
+              size="small"
+              :loading="pdfBusy[a.id]"
+              prepend-icon="mdi-file-pdf-box"
+              @click="onDownloadPDF(a)"
+            >
+              PDF
+            </v-btn>
           </td>
         </tr>
       </tbody>
