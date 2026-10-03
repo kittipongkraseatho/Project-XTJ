@@ -14,6 +14,7 @@ const { list } = useTrades()
 
 const overview = ref<any>(null)
 const recent = ref<any[]>([])
+const equity = ref<any[]>([])
 const loading = ref(true)
 
 async function onLogout() {
@@ -23,12 +24,14 @@ async function onLogout() {
 
 onMounted(async () => {
   try {
-    const [ov, tr] = await Promise.all([
+    const [ov, tr, eq] = await Promise.all([
       getOverview(),
       list({ limit: 10 }),
+      $fetch<{ equity_curve: any[] }>('/v1/analytics/equity-curve', { query: { limit: 200 } }),
     ])
     overview.value = ov
     recent.value = tr.trades
+    equity.value = eq.equity_curve
   } catch {
     // graceful fallback if no trades yet
   } finally {
@@ -91,6 +94,10 @@ function fmtPct(n: number) {
           <h2 class="text-h6">Recent trades</h2>
           <v-btn variant="text" to="/trades">View all</v-btn>
         </div>
+      </v-card>
+
+      <EquityCurveChart :points="equity" class="mt-4" />
+    </template>
         <v-table density="compact">
           <thead>
             <tr><th>Symbol</th><th>Direction</th><th>Open</th><th class="text-right">Net P/L</th></tr>
