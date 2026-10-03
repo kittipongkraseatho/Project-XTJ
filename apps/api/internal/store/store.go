@@ -57,6 +57,8 @@ type Store struct {
 	DailyMetrics      *DailyMetricRepo
 	BrokerConnections *BrokerConnectionRepo
 	SyncRuns          *SyncRunRepo
+	Payments          *PaymentRepo
+	ReportSchedules   *ReportScheduleRepo
 }
 
 // New builds a Store with all repos wired to the given pool.
@@ -85,6 +87,8 @@ func New(pool *pgxpool.Pool) *Store {
 		DailyMetrics:      &DailyMetricRepo{pool: pool},
 		BrokerConnections: &BrokerConnectionRepo{pool: pool},
 		SyncRuns:          &SyncRunRepo{pool: pool},
+		Payments:          &PaymentRepo{pool: pool},
+		ReportSchedules:   &ReportScheduleRepo{pool: pool},
 	}
 }
 
