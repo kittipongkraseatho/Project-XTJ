@@ -38,7 +38,7 @@ func FromContext(ctx context.Context) *api_key.APIKey {
 // Usage:
 //
 //	e.GET("/v1/public/...", apikey.Middleware(svc, bucket, read:accounts))
-func Middleware(svc Service, bucket *ratelimit.KeyBucket, required api_key.Scope) echo.MiddlewareFunc {
+func Middleware(svc Service, bucket ratelimit.KeyBucket, required api_key.Scope) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			authz := c.Request().Header.Get("Authorization")
@@ -68,7 +68,7 @@ func Middleware(svc Service, bucket *ratelimit.KeyBucket, required api_key.Scope
 				return c.JSON(http.StatusForbidden, errorEnvelope("API_KEY_SCOPE_MISSING",
 					"missing required scope: "+string(required)))
 			}
-			if bucket != nil && !bucket.Allow(k.ID) {
+			if bucket != nil && !bucket.Allow(k.ID).Allowed {
 				c.Response().Header().Set("Retry-After", "60")
 				return c.JSON(http.StatusTooManyRequests, errorEnvelope("RATE_LIMITED", "per-key rate limit exceeded"))
 			}

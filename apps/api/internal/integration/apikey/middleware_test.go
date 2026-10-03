@@ -210,7 +210,7 @@ func TestMiddleware_NoRequiredScope_RunsHandler(t *testing.T) {
 func TestMiddleware_RateLimited(t *testing.T) {
 	k := makeKey(t)
 	svc := &fakeService{auth: func(context.Context, string) (*api_key.APIKey, error) { return k, nil }}
-	bucket := ratelimit.NewKeyBucket(60, 1) // burst=1 → 2nd request must hit 429
+	bucket := ratelimit.NewMemoryKeyBucket(60, 1) // burst=1 → 2nd request must hit 429
 	mw := apikey.Middleware(svc, bucket, "")
 	// First call uses the burst token; second must be denied.
 	rec1, _ := doRequest(t, mw, "Bearer trj_pk_test.aaa")

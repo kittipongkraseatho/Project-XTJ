@@ -76,7 +76,7 @@ type PublicDeps struct {
 //	GET /v1/public/analytics/day-of-week     read:analytics
 //	GET /v1/public/analytics/hour-of-day     read:analytics
 //	GET /v1/public/billing/payments          read:payments
-func RegisterRoutes(e *echo.Echo, deps *PublicDeps, svc apikey.Service, bucket *ratelimit.KeyBucket) {
+func RegisterRoutes(e *echo.Echo, deps *PublicDeps, svc apikey.Service, bucket ratelimit.KeyBucket) {
 	pub := e.Group("/v1/public")
 
 	// Accounts

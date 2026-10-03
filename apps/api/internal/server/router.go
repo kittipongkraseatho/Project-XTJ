@@ -275,7 +275,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	// Phase 5 — Public API (API-key auth, not JWT).
 	// 60 req/min per key, burst 10 by default — see Phase 5 design §6.
 	// Knobs: API_PUBLIC_RATE_PER_MINUTE, API_PUBLIC_RATE_BURST.
-	apiKeyBucket := ratelimit.NewKeyBucket(cfg.APIPublicRatePerMinute, cfg.APIPublicRateBurst)
+	apiKeyBucket := ratelimit.NewMemoryKeyBucket(cfg.APIPublicRatePerMinute, cfg.APIPublicRateBurst)
 	apiKeySvc := apikey.NewServiceImpl(st)
 	apiKeyAdmin := phase5http.NewAdminHandler(apiKeySvc, logger)
 	authed.GET("/api-keys", apiKeyAdmin.List)
