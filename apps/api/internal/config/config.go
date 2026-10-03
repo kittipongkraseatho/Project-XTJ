@@ -75,6 +75,10 @@ type Config struct {
 	MetaAPIToken     string `envconfig:"METAAPI_TOKEN"`
 	MetaAPIRegion    string `envconfig:"METAAPI_REGION" default:"ap-southeast"`
 	MetaAPIAccountID string `envconfig:"METAAPI_ACCOUNT_ID"`
+
+	// Phase 5 — Public API rate limit (per-key token bucket)
+	APIPublicRatePerMinute int `envconfig:"API_PUBLIC_RATE_PER_MINUTE" default:"60"`
+	APIPublicRateBurst     int `envconfig:"API_PUBLIC_RATE_BURST" default:"10"`
 }
 
 // Load reads env vars and returns a Config.

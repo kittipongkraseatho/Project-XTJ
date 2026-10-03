@@ -273,8 +273,9 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	e.POST("/v1/billing/webhook", p4.Webhook)
 
 	// Phase 5 — Public API (API-key auth, not JWT).
-	// 60 req/min per key, burst 10 — see Phase 5 design §6.
-	apiKeyBucket := ratelimit.NewKeyBucket(60, 10)
+	// 60 req/min per key, burst 10 by default — see Phase 5 design §6.
+	// Knobs: API_PUBLIC_RATE_PER_MINUTE, API_PUBLIC_RATE_BURST.
+	apiKeyBucket := ratelimit.NewKeyBucket(cfg.APIPublicRatePerMinute, cfg.APIPublicRateBurst)
 	apiKeySvc := apikey.NewServiceImpl(st)
 	apiKeyAdmin := phase5http.NewAdminHandler(apiKeySvc, logger)
 	authed.GET("/api-keys", apiKeyAdmin.List)
@@ -298,7 +299,9 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		AnalyticsHourOfDay:       p1.HourOfDayBreakdown,
 		BillingPayments:          p4.Payments,
 	}, apiKeySvc, apiKeyBucket)
-	logger.Info("public api registered", slog.String("rate_per_min", "60"))
+	logger.Info("public api registered",
+		slog.Int("rate_per_minute", cfg.APIPublicRatePerMinute),
+		slog.Int("rate_burst", cfg.APIPublicRateBurst))
 
 	return syncWk
 }

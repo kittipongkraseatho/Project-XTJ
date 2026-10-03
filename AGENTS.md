@@ -12,20 +12,23 @@
 
 ## Current phase
 
-**Phase 4 complete. All planned phases (0–4) shipped.**
+**Phase 5 complete. All planned phases (0–5) shipped.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
 - Phase 2 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase2-design.md` — Mock broker sync ✅ shipped
 - Phase 3 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase3-design.md` — Multi-account + Session/EA/Magic + PDF ✅ shipped
 - Phase 4 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase4-design.md` — Billing (Stripe) + Real MetaApi + Email scheduling ✅ shipped
+- Phase 5 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` — Public API + Scoped API Keys ✅ shipped
 
-**Phase 4 in scope (delivered):** 2 new tables (`payments` + `report_schedules`) + 2 enums · `billing.Service` interface + `StubBillingService` + `StripeBillingService` (real webhook signature verify via stripe-go) · `mailer.Service` interface + `StubMailer` (writes `.eml` files) + `SMTPMailer` (net/smtp) · `ScheduleService` (cron math pure) + `ScheduleWorker` (60s poll, single-flight) · 7 billing endpoints + 4 schedule endpoints + webhook receiver · `reportbuild` shared helper for /v1/reports/pdf and email path · FE: `/billing` page with plan comparison + checkout flow · `useBilling` + `useSchedules` composables · Real MetaApi adapter (env-gated, Phase 5 wires the actual SDK call).
+**Phase 5 in scope (delivered):** 1 new table (`api_keys`) + 2 indexes · `apikey.Service` interface + `ServiceImpl` (bcrypt cost=10; key format `trj_pk_<8-char-prefix>.<24-byte-secret>`; plaintext shown ONCE at creation) · `apikey.Middleware` (echo middleware: bearer parse → bcrypt verify → scope guard → per-key token-bucket rate limit) · `ratelimit.KeyBucket` (per-key `golang.org/x/time/rate.Limiter`, 60 req/min default burst 10) · 13 read-only public endpoints under `/v1/public/*` (accounts, trades, 8 analytics, payments) · 5 admin endpoints under `/v1/api-keys` (JWT-authed: list, generate, get, update, revoke) · FE: `/api-keys` page (table + create dialog + one-shot plaintext display + revoke) + `useApiKeys` composable + nav link.
 
 **Deferred (Phase 5+ — outside initial master plan):**
 - AI analysis (LLM trade commentary)
-- Public API + scoped API keys
 - Real MetaApi SDK handshake (provider returns ErrProviderNotConfigured until METAAPI_TOKEN is set)
+- Multi-instance rate limiting via Redis (Phase 5 single-instance in-process token bucket)
+- Stripe webhook → subscription state-machine application (verification-only in Phase 5)
+- `write:journal` / `write:webhooks` scopes (Phase 5 is read-only)
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -62,6 +65,7 @@
 - **Billing (Phase 4):** `billing.Service` interface in `internal/integration/billing/`. Stub impl for local dev; Stripe impl via `stripe-go/v9` (real webhook signature verify, Phase 5 future work to fully wire checkout session-state application).
 - **Mailer (Phase 4):** `mailer.Service` interface in `internal/integration/mailer/`. Stub writes `.eml` files to a temp dir; production uses `SMTPMailer` via net/smtp.
 - **Scheduling (Phase 4):** pure cron helper `ComputeNextSend` + `ScheduleWorker` (60s poll, in-process single-flight). New `reportbuild` package shares trade-walking logic between HTTP `/v1/reports/pdf` and the worker.
+- **API keys (Phase 5):** `apikey.Service` interface in `internal/integration/apikey/`. Implementation uses `golang.org/x/crypto/bcrypt` (cost=10). Key format `trj_pk_<8-char-prefix>.<24-byte-secret>` (URL-safe base64); the `prefix` is the public lookup key, the `secret` is bcrypt-hashed and never recoverable. Echo middleware sets tenant_id on both request ctx (`tenant.WithTenantID`) and echo ctx (`c.Set("tenant_id")`) — the former for service/store paths, the latter for existing phase1/4 handlers. Per-key rate limit via `internal/ratelimit/KeyBucket` (in-process `golang.org/x/time/rate.Limiter` map; Phase 5.1 swaps for Redis). Public API endpoints under `/v1/public/*` are thin wrappers around existing phase1/4 handlers; admin endpoints under `/v1/api-keys` are JWT-authed for management (list/create/get/update/revoke).
 - **Tests:** Vitest + `@vue/test-utils` for unit, Playwright for E2E.
 
 ### Cross-stack
@@ -80,8 +84,9 @@
 | Phase 2 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase2-design.md` |
 | Phase 3 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase3-design.md` |
 | Phase 4 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase4-design.md` |
+| Phase 5 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
-| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4) |
+| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5) |
 | sqlc queries | `apps/api/queries/` |
 | Domain entities | `apps/api/internal/domain/<entity>/` |
 | HTTP handlers | `apps/api/internal/httpapi/` |
@@ -98,14 +103,18 @@
 | Report build (shared) | `apps/api/internal/reportbuild/` |
 | Plan limits | `apps/api/internal/entitlement/` |
 | Cloudinary integration | `apps/api/internal/integration/cloudinary/` |
+| API keys | `apps/api/internal/integration/apikey/` |
+| Rate limit | `apps/api/internal/ratelimit/` |
 | Phase 1 handlers | `apps/api/internal/httpapi/phase1/` |
 | Phase 2 handlers | `apps/api/internal/httpapi/phase2/` |
 | Phase 3 handlers | `apps/api/internal/httpapi/phase3/` |
 | Phase 4 handlers | `apps/api/internal/httpapi/phase4/` |
+| Phase 5 handlers | `apps/api/internal/httpapi/phase5/` |
 | Phase 1 store repos | `apps/api/internal/store/phase1_repos.go` |
 | Phase 2 store repos | `apps/api/internal/store/phase2_repos.go` |
 | Phase 3 store repos | `apps/api/internal/store/phase3_repos.go` |
 | Phase 4 store repos | `apps/api/internal/store/phase4_repos.go` |
+| Phase 5 store repos | `apps/api/internal/store/phase5_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
@@ -122,6 +131,8 @@
 - **Adding a new broker provider (Phase 2+):** Implement `internal/integration/broker/provider.go` `Provider` interface (Name / Connect / Disconnect / FetchDeals / Ping) → register in `router.go` registry map. Return canonical `broker.Deal` shape (minor units, UUIDv5 stable `ProviderDealID`) so SyncService's dedup contract holds without changes.
 - **Adding a new billing provider (Phase 4+):** Implement `billing.Service` interface in `internal/integration/billing/`. Wire the new env check (`XEnabled()`) in `router.go`. Production code uses Stripe (`stripe-go`); to add Omise, drop a `omise.go` with the same interface.
 - **Adding a new mailer backend (Phase 4+):** Implement `mailer.Service` interface in `internal/integration/mailer/`. SendGrid, Mailgun, SES — each as a separate file.
+- **Adding a new API scope (Phase 5+):** add the constant in `internal/domain/api_key/api_key.go`, append to `AllScopes`, add to `shared/src` if FE needs it, then mount a new group in `internal/httpapi/phase5/public_handler.go` with `apikey.Middleware(svc, bucket, scope)`.
+- **Adding a new public endpoint (Phase 5+):** pick the right group in `internal/httpapi/phase5/public_handler.go` (read:accounts / read:trades / read:analytics / read:payments), bind the handler function in `PublicDeps`, and wire it in `internal/server/router.go`. Keep the handler thin — delegate to the existing phase1/4 implementation.
 - **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
 - **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
