@@ -79,6 +79,11 @@ type Config struct {
 	// Phase 5 — Public API rate limit (per-key token bucket)
 	APIPublicRatePerMinute int `envconfig:"API_PUBLIC_RATE_PER_MINUTE" default:"60"`
 	APIPublicRateBurst     int `envconfig:"API_PUBLIC_RATE_BURST" default:"10"`
+
+	// Phase 5.1 — Rate limit backend selection (memory | redis)
+	RateLimitBackend    string `envconfig:"RATE_LIMIT_BACKEND" default:"memory"`
+	RateLimitKeyPrefix  string `envconfig:"RATE_LIMIT_KEY_PREFIX" default:"trj:rl:"`
+	RateLimitTTLSeconds int    `envconfig:"RATE_LIMIT_TTL_SECONDS" default:"3600"`
 }
 
 // Load reads env vars and returns a Config.
@@ -140,4 +145,10 @@ func (c *Config) SMTPEnabled() bool {
 // registry choice in router.go (MetaApi vs Mock-only).
 func (c *Config) MetaApiEnabled() bool {
 	return c.MetaAPIToken != ""
+}
+
+// RateLimitRedisEnabled returns true iff RATE_LIMIT_BACKEND=redis.
+// Phase 5.1: drives the bucket choice in router.go.
+func (c *Config) RateLimitRedisEnabled() bool {
+	return c.RateLimitBackend == "redis"
 }

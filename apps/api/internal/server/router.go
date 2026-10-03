@@ -272,10 +272,28 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	// Webhook is public — mount OUTSIDE the authed group.
 	e.POST("/v1/billing/webhook", p4.Webhook)
 
-	// Phase 5 — Public API (API-key auth, not JWT).
-	// 60 req/min per key, burst 10 by default — see Phase 5 design §6.
-	// Knobs: API_PUBLIC_RATE_PER_MINUTE, API_PUBLIC_RATE_BURST.
-	apiKeyBucket := ratelimit.NewMemoryKeyBucket(cfg.APIPublicRatePerMinute, cfg.APIPublicRateBurst)
+	// Phase 5.1 — Public API rate-limit backend. Memory default, Redis for prod.
+// Memory: per-instance counters (each replica counts independently).
+// Redis: atomic Lua-based token bucket (correct across replicas).
+	var apiKeyBucket ratelimit.KeyBucket
+	if cfg.RateLimitRedisEnabled() {
+		apiKeyBucket = ratelimit.NewRedisKeyBucket(
+			rdb,
+			cfg.RateLimitKeyPrefix,
+			cfg.APIPublicRatePerMinute,
+			cfg.APIPublicRateBurst,
+			cfg.RateLimitTTLSeconds,
+			logger,
+		)
+		logger.Info("rate limit backend",
+			slog.String("backend", "redis"),
+			slog.String("key_prefix", cfg.RateLimitKeyPrefix))
+	} else {
+		apiKeyBucket = ratelimit.NewMemoryKeyBucket(
+			cfg.APIPublicRatePerMinute, cfg.APIPublicRateBurst)
+		logger.Info("rate limit backend",
+			slog.String("backend", "memory"))
+	}
 	apiKeySvc := apikey.NewServiceImpl(st)
 	apiKeyAdmin := phase5http.NewAdminHandler(apiKeySvc, logger)
 	authed.GET("/api-keys", apiKeyAdmin.List)
@@ -300,6 +318,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		BillingPayments:          p4.Payments,
 	}, apiKeySvc, apiKeyBucket)
 	logger.Info("public api registered",
+		slog.String("rate_backend", cfg.RateLimitBackend),
 		slog.Int("rate_per_minute", cfg.APIPublicRatePerMinute),
 		slog.Int("rate_burst", cfg.APIPublicRateBurst))
 
