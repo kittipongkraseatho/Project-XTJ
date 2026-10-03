@@ -60,6 +60,8 @@ type Store struct {
 	Payments          *PaymentRepo
 	ReportSchedules   *ReportScheduleRepo
 	APIKeys           *APIKeyRepo
+	WebhookSubs       *WebhookSubscriptionRepo
+	WebhookDeliveries *WebhookDeliveryRepo
 }
 
 // New builds a Store with all repos wired to the given pool.
@@ -91,6 +93,8 @@ func New(pool *pgxpool.Pool) *Store {
 		Payments:          &PaymentRepo{pool: pool},
 		ReportSchedules:   &ReportScheduleRepo{pool: pool},
 		APIKeys:           &APIKeyRepo{pool: pool},
+		WebhookSubs:       &WebhookSubscriptionRepo{pool: pool},
+		WebhookDeliveries: &WebhookDeliveryRepo{pool: pool},
 	}
 }
 
