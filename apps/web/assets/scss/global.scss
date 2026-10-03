@@ -1,0 +1,20 @@
+// Global styles for Trading Journal web app.
+// Loaded after Vuetify styles in nuxt.config.ts.
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #__nuxt {
+  background: rgb(var(--v-theme-background));
+  min-height: 100vh;
+}
+
+a { color: rgb(var(--v-theme-primary)); }
+
+.brand-gradient {
+  background: linear-gradient(135deg, #3B82F6 0%, #22D3EE 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

@@ -1,0 +1,90 @@
+name: api-ci
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Postgres + Redis for integration tests (testcontainers-go would also work;
+    # we use the service containers to mirror production).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tj_test
+          POSTGRES_USER: tj
+          POSTGRES_PASSWORD: devpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready -U tj -d tj_test
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://tj:devpass@localhost:5432/tj_test?sslmode=disable
+      REDIS_URL: redis://localhost:6379/0
+      JWT_ED25519_PRIVATE_KEY_PATH: /tmp/jwt-test.pem
+      OAUTH_GOOGLE_CLIENT_ID: ci-dummy
+      OAUTH_GOOGLE_CLIENT_SECRET: ci-dummy
+      OAUTH_GOOGLE_REDIRECT_URI: http://localhost:8080/v1/auth/oauth/google/callback
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache: true
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Download modules
+        working-directory: apps/api
+        run: go mod download
+
+      - name: Build
+        working-directory: apps/api
+        run: go build ./...
+
+      - name: Run go vet
+        working-directory: apps/api
+        run: go vet ./...
+
+      - name: Unit + integration tests
+        working-directory: apps/api
+        run: go test -race -short -coverprofile=cover.out ./...
+
+      - name: Upload coverage
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage
+          path: apps/api/cover.out

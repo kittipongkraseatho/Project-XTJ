@@ -1,0 +1,69 @@
+name: web-ci
+
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - '.github/workflows/web-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - '.github/workflows/web-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      NUXT_PUBLIC_API_BASE_URL: http://localhost:8080
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          cache-dependency-path: apps/web/package.json packages/shared/package.json
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        working-directory: apps/web
+        run: pnpm lint
+
+      - name: Typecheck
+        working-directory: apps/web
+        run: pnpm typecheck
+
+      - name: Unit tests
+        working-directory: apps/web
+        run: pnpm test:unit
+
+      - name: Build
+        working-directory: apps/web
+        run: pnpm build
+
+      - name: Build PWA artifacts (sanity)
+        working-directory: apps/web
+        run: |
+          if [ -d .output/public ]; then
+            ls -la .output/public
+            test -f .output/public/manifest.webmanifest || test -f .output/public/manifest.json || \
+              echo "::warning::manifest not found at expected path"
+          fi
