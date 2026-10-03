@@ -12,16 +12,18 @@
 
 ## Current phase
 
-**Phase 0 — Foundation.** Spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md`.
+**Phase 1 complete. Phase 2 not started.**
 
-**In scope:** repo skeleton · 9 tables (7 base + 2 OAuth) · auth flows (email/password + OAuth Google/Line) · tenant context · RBAC · JWT (EdDSA) · argon2id · refresh session rotation · audit log · rate limit · PWA shell · observability (slog + healthz/readyz/livez) · docker-compose · GitHub Actions · unit + integration tests + 1 Playwright happy path.
+- Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
+- Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
+
+**Phase 1 in scope (delivered):** 11 tables (orders/deals/positions/trades/journal_entries/tags/journal_tags/journal_images/trading_accounts/import_jobs/imported_files + 12 enums) · MT5 HTML+CSV parser + aggregator · import service (async worker pool, dedup by sha256+provider_deal_id) · trade list/detail · Cloudinary signed upload (BE-mediated, stub fallback) · journal/tags/images CRUD · equity-curve + symbol-breakdown analytics · PWA pages.
 
 **Out of scope (defer to later phases):**
-- MT5 HTML/CSV parser · trade data model · Cloudinary signed upload
-- MetaApi integration · account connection · sync worker
-- Multi-account dashboard · session/EA/magic analysis · PDF reports
-- Billing automation · Stripe/Omise
-- AI analysis
+- MetaApi integration · account connection · sync worker (Phase 2)
+- Multi-account dashboard · session/EA/magic analysis · PDF reports (Phase 3)
+- Billing automation · Stripe/Omise (Phase 4)
+- AI analysis (Phase 4)
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -49,9 +51,9 @@
 - **HTTP** via `$fetch` in `useApi` composable: injects Bearer, maps errors → typed `ApiError`, auto-refresh on 401 once.
 - **Forms:** VeeValidate 4 + Zod.
 - **Routing:** file-based; `auth.global.ts` redirects unauth to `/login`.
-- **CSP:** `'self' + res.cloudinary.com` for images (Phase 1 adds more).
+- **CSP:** `'self' + res.cloudinary.com` for images (Phase 1 added Cloudinary; later phases add more).
 - **PWA:** `@vite-pwa/nuxt`. `autoUpdate`. Icons in `public/icons/`. Manifest aligns with dark palette.
-- **i18n:** English-only in Phase 0. Thai copy inline as needed; full i18n in Phase 4.
+- **i18n:** English-only in Phase 0–3. Thai copy inline as needed; full i18n in Phase 4.
 - **Tests:** Vitest + `@vue/test-utils` for unit, Playwright for E2E.
 
 ### Cross-stack
@@ -66,13 +68,19 @@
 | What | Path |
 |---|---|
 | Phase 0 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` |
+| Phase 1 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
-| Migrations | `apps/api/migrations/` |
+| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1) |
 | sqlc queries | `apps/api/queries/` |
 | Domain entities | `apps/api/internal/domain/<entity>/` |
 | HTTP handlers | `apps/api/internal/httpapi/` |
 | Middleware chain | `apps/api/internal/server/` |
 | OAuth providers | `apps/api/internal/integration/oauth/` |
+| MT5 parser | `apps/api/internal/parser/` |
+| Worker pool | `apps/api/internal/worker/` |
+| Cloudinary integration | `apps/api/internal/integration/cloudinary/` |
+| Phase 1 handlers | `apps/api/internal/httpapi/phase1/` |
+| Phase 1 store repos | `apps/api/internal/store/phase1_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
