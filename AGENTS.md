@@ -12,7 +12,7 @@
 
 ## Current phase
 
-**Phase 5 complete. All planned phases (0–5) shipped.**
+**Phase 5.1 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening shipped.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
@@ -20,15 +20,17 @@
 - Phase 3 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase3-design.md` — Multi-account + Session/EA/Magic + PDF ✅ shipped
 - Phase 4 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase4-design.md` — Billing (Stripe) + Real MetaApi + Email scheduling ✅ shipped
 - Phase 5 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` — Public API + Scoped API Keys ✅ shipped
+- Phase 5.1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` — Redis rate limit + Integration test ✅ shipped
 
-**Phase 5 in scope (delivered):** 1 new table (`api_keys`) + 2 indexes · `apikey.Service` interface + `ServiceImpl` (bcrypt cost=10; key format `trj_pk_<8-char-prefix>.<24-byte-secret>`; plaintext shown ONCE at creation) · `apikey.Middleware` (echo middleware: bearer parse → bcrypt verify → scope guard → per-key token-bucket rate limit) · `ratelimit.KeyBucket` (per-key `golang.org/x/time/rate.Limiter`, 60 req/min default burst 10) · 13 read-only public endpoints under `/v1/public/*` (accounts, trades, 8 analytics, payments) · 5 admin endpoints under `/v1/api-keys` (JWT-authed: list, generate, get, update, revoke) · FE: `/api-keys` page (table + create dialog + one-shot plaintext display + revoke) + `useApiKeys` composable + nav link.
+**Phase 5.1 in scope (delivered):** Extracted `ratelimit.KeyBucket` interface · renamed Phase 5 in-process impl to `MemoryKeyBucket` · new `RedisKeyBucket` (atomic Lua token-bucket, fail-open on Redis error, TTL-based GC) · `RATE_LIMIT_BACKEND=memory|redis` env-gated router swap · E2E integration test (testcontainers-go Postgres+Redis) covering 10-step API-key lifecycle: register → /me → mint → public-with-key → scope guard → burst → 429 → revoke → reuse-401 (revoked) → list-confirms-revoked. Skipped unless `INTEGRATION_TESTS=on` + Docker available; runs in CI.
 
-**Deferred (Phase 5+ — outside initial master plan):**
+**Deferred (Phase 6+ — outside initial master plan):**
 - AI analysis (LLM trade commentary)
 - Real MetaApi SDK handshake (provider returns ErrProviderNotConfigured until METAAPI_TOKEN is set)
-- Multi-instance rate limiting via Redis (Phase 5 single-instance in-process token bucket)
 - Stripe webhook → subscription state-machine application (verification-only in Phase 5)
 - `write:journal` / `write:webhooks` scopes (Phase 5 is read-only)
+- Webhook delivery / inbound webhooks (Phase 5.2)
+- Per-key (per-user) rate-limit override
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -66,6 +68,7 @@
 - **Mailer (Phase 4):** `mailer.Service` interface in `internal/integration/mailer/`. Stub writes `.eml` files to a temp dir; production uses `SMTPMailer` via net/smtp.
 - **Scheduling (Phase 4):** pure cron helper `ComputeNextSend` + `ScheduleWorker` (60s poll, in-process single-flight). New `reportbuild` package shares trade-walking logic between HTTP `/v1/reports/pdf` and the worker.
 - **API keys (Phase 5):** `apikey.Service` interface in `internal/integration/apikey/`. Implementation uses `golang.org/x/crypto/bcrypt` (cost=10). Key format `trj_pk_<8-char-prefix>.<24-byte-secret>` (URL-safe base64); the `prefix` is the public lookup key, the `secret` is bcrypt-hashed and never recoverable. Echo middleware sets tenant_id on both request ctx (`tenant.WithTenantID`) and echo ctx (`c.Set("tenant_id")`) — the former for service/store paths, the latter for existing phase1/4 handlers. Per-key rate limit via `internal/ratelimit/KeyBucket` (in-process `golang.org/x/time/rate.Limiter` map; Phase 5.1 swaps for Redis). Public API endpoints under `/v1/public/*` are thin wrappers around existing phase1/4 handlers; admin endpoints under `/v1/api-keys` are JWT-authed for management (list/create/get/update/revoke).
+- **Rate limit (Phase 5.1):** `ratelimit.KeyBucket` interface with two implementations. `MemoryKeyBucket` (in-process `sync.Mutex` + `rate.Limiter` per key) — default for dev. `RedisKeyBucket` (atomic Lua token-bucket in Redis; fail-open on Redis error with `slog.Warn`; TTL-based cleanup) — set via `RATE_LIMIT_BACKEND=redis` for prod multi-instance. Both return `Decision{Allowed, Remaining, Reset}`. E2E integration test in `internal/integration/apikey_e2e/` (testcontainers-go Postgres+Redis) exercises the full 10-step API-key flow; gated by `INTEGRATION_TESTS=on`.
 - **Tests:** Vitest + `@vue/test-utils` for unit, Playwright for E2E.
 
 ### Cross-stack
@@ -85,6 +88,7 @@
 | Phase 3 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase3-design.md` |
 | Phase 4 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase4-design.md` |
 | Phase 5 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` |
+| Phase 5.1 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
 | Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5) |
 | sqlc queries | `apps/api/queries/` |
@@ -133,6 +137,7 @@
 - **Adding a new mailer backend (Phase 4+):** Implement `mailer.Service` interface in `internal/integration/mailer/`. SendGrid, Mailgun, SES — each as a separate file.
 - **Adding a new API scope (Phase 5+):** add the constant in `internal/domain/api_key/api_key.go`, append to `AllScopes`, add to `shared/src` if FE needs it, then mount a new group in `internal/httpapi/phase5/public_handler.go` with `apikey.Middleware(svc, bucket, scope)`.
 - **Adding a new public endpoint (Phase 5+):** pick the right group in `internal/httpapi/phase5/public_handler.go` (read:accounts / read:trades / read:analytics / read:payments), bind the handler function in `PublicDeps`, and wire it in `internal/server/router.go`. Keep the handler thin — delegate to the existing phase1/4 implementation.
+- **Adding a new rate limit backend (Phase 5.1+):** implement `ratelimit.KeyBucket` interface (`Allow(uuid) Decision`, `Close() error`) and add the wiring switch in `internal/server/router.go`. The middleware only inspects `Decision.Allowed`. Don't bypass the interface for one-off buckets — that breaks the prod/dev swap.
 - **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
 - **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
