@@ -12,18 +12,18 @@
 
 ## Current phase
 
-**Phase 1 complete. Phase 2 not started.**
+**Phase 2 complete. Phase 3 not started.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
+- Phase 2 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase2-design.md` — Mock broker sync ✅ shipped
 
-**Phase 1 in scope (delivered):** 11 tables (orders/deals/positions/trades/journal_entries/tags/journal_tags/journal_images/trading_accounts/import_jobs/imported_files + 12 enums) · MT5 HTML+CSV parser + aggregator · import service (async worker pool, dedup by sha256+provider_deal_id) · trade list/detail · Cloudinary signed upload (BE-mediated, stub fallback) · journal/tags/images CRUD · equity-curve + symbol-breakdown analytics · PWA pages.
+**Phase 2 in scope (delivered):** 2 tables (`broker_connections` + `sync_runs`) + 4 enums · `broker.Provider` interface + `MockProvider` (deterministic seed, 1-3/day) + `Registry` · `syncsvc.SyncService` reusing ImportService dedup · `worker.SyncWorker` (poll + manual enqueue, single-flight) · 8 HTTP endpoints under `/v1/brokers/*` · `/accounts` broker connection UI + sync history · dashboard `SyncStatusCard`.
 
 **Out of scope (defer to later phases):**
-- MetaApi integration · account connection · sync worker (Phase 2)
+- Real MetaApi SDK adapter (interface ready; one file swap later)
 - Multi-account dashboard · session/EA/magic analysis · PDF reports (Phase 3)
-- Billing automation · Stripe/Omise (Phase 4)
-- AI analysis (Phase 4)
+- Billing automation · Stripe/Omise · AI analysis (Phase 4)
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -54,6 +54,7 @@
 - **CSP:** `'self' + res.cloudinary.com` for images (Phase 1 added Cloudinary; later phases add more).
 - **PWA:** `@vite-pwa/nuxt`. `autoUpdate`. Icons in `public/icons/`. Manifest aligns with dark palette.
 - **i18n:** English-only in Phase 0–3. Thai copy inline as needed; full i18n in Phase 4.
+- **Broker sync (Phase 2):** `Provider` interface in `internal/integration/broker/`. Mock implementation only — MetaApi SDK deferred. SyncWorker reuses the Phase 1 worker.Pool; SyncService reuses `dealRepo.Insert` for dedup (single source of truth for both manual uploads and broker syncs).
 - **Tests:** Vitest + `@vue/test-utils` for unit, Playwright for E2E.
 
 ### Cross-stack
@@ -69,18 +70,23 @@
 |---|---|
 | Phase 0 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` |
 | Phase 1 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` |
+| Phase 2 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase2-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
-| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1) |
+| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2) |
 | sqlc queries | `apps/api/queries/` |
 | Domain entities | `apps/api/internal/domain/<entity>/` |
 | HTTP handlers | `apps/api/internal/httpapi/` |
 | Middleware chain | `apps/api/internal/server/` |
 | OAuth providers | `apps/api/internal/integration/oauth/` |
+| Broker providers | `apps/api/internal/integration/broker/` |
 | MT5 parser | `apps/api/internal/parser/` |
 | Worker pool | `apps/api/internal/worker/` |
+| SyncService | `apps/api/internal/syncsvc/` |
 | Cloudinary integration | `apps/api/internal/integration/cloudinary/` |
 | Phase 1 handlers | `apps/api/internal/httpapi/phase1/` |
+| Phase 2 handlers | `apps/api/internal/httpapi/phase2/` |
 | Phase 1 store repos | `apps/api/internal/store/phase1_repos.go` |
+| Phase 2 store repos | `apps/api/internal/store/phase2_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
@@ -94,6 +100,7 @@
 
 - **Adding a new endpoint:** `internal/httpapi/<area>/handler.go` (Echo handler) → `internal/httpapi/<area>/dto.go` (request/response types) → `internal/service/<area>/<usecase>.go` (orchestration) → `internal/store/<table>.sql` (sqlc query) → `internal/store/<table>.go` (thin wrapper). Add route to `internal/server/router.go`.
 - **Adding a new OAuth provider:** Implement `internal/integration/oauth/provider.go` `Provider` interface → register in `internal/integration/oauth/registry.go` if env vars set.
+- **Adding a new broker provider (Phase 2+):** Implement `internal/integration/broker/provider.go` `Provider` interface (Name / Connect / Disconnect / FetchDeals / Ping) → register in `router.go` registry map. Return canonical `broker.Deal` shape (minor units, UUIDv5 stable `ProviderDealID`) so SyncService's dedup contract holds without changes.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
 - **Adding a new plan:** insert row in `plans` migration (or admin endpoint Phase 0 deferred to Phase 4).
 - **Adding a new role:** extend `membership_role` enum in new migration, update RBAC matrix in spec §7.4, update `RequireRole()` middleware.
