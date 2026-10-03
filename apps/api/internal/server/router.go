@@ -17,7 +17,9 @@ import (
 	phase3http "github.com/trading-journal/api/internal/httpapi/phase3"
 	phase4http "github.com/trading-journal/api/internal/httpapi/phase4"
 	phase5http "github.com/trading-journal/api/internal/httpapi/phase5"
+	phase6http "github.com/trading-journal/api/internal/httpapi/phase6"
 	"github.com/trading-journal/api/internal/domain/broker_connection"
+	whsvc "github.com/trading-journal/api/internal/integration/webhook"
 	"github.com/trading-journal/api/internal/integration/apikey"
 	"github.com/trading-journal/api/internal/integration/billing"
 	"github.com/trading-journal/api/internal/integration/broker"
@@ -76,7 +78,7 @@ import (
 //   - DELETE /v1/brokers/connections/:id        (auth required)
 //   - GET    /v1/brokers/connections/:id/sync-runs (auth required)
 //   - GET    /v1/brokers/sync-runs/:id          (auth required)
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *observability.RateLimiter, cfg *config.Config, logger *slog.Logger, workerPool *worker.Pool) *worker.SyncWorker {
+func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *observability.RateLimiter, cfg *config.Config, logger *slog.Logger, workerPool *worker.Pool) (*worker.SyncWorker, *worker.WebhookWorker) {
 	// System endpoints (no auth, no rate limit)
 	e.GET("/healthz", Healthz())
 	e.GET("/livez", Healthz())
@@ -109,6 +111,14 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	oauthH := authhttp.NewOAuthHandlers(oauthFlow, logger)
 	importSvc := service.NewImportService(st, logger)
 	importSvc.AttachPool(workerPool) // bg async; nil-safe fallback
+
+	// Phase 5.2 — webhook service + worker. The worker polls every 30s
+	// and processes up to 50 deliveries per tick. ImportService emits
+	// `import.completed` + `trade.created` events as it finishes a job.
+	whSvcImpl := whsvc.NewServiceImpl(st)
+	importSvc.AttachWebhookService(whSvcImpl)
+	whWk := worker.NewWebhookWorker(context.Background(), st, whSvcImpl, logger, worker.WebhookWorkerOptions{})
+	whWk.Start()
 
 	var cldSvc cloudinary.Service = cloudinary.StubService{}
 	if cfg.CloudinaryEnabled() {
@@ -301,6 +311,15 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.GET("/api-keys/:id", apiKeyAdmin.Get)
 	authed.PATCH("/api-keys/:id", apiKeyAdmin.Update)
 	authed.DELETE("/api-keys/:id", apiKeyAdmin.Revoke)
+
+	// Phase 5.2 — webhook subscriptions (JWT-authed admin).
+	whAdmin := phase6http.NewWebhookAdminHandler(whSvcImpl, st, logger)
+	authed.GET("/webhooks", whAdmin.List)
+	authed.POST("/webhooks", whAdmin.Create)
+	authed.GET("/webhooks/:id", whAdmin.Get)
+	authed.PATCH("/webhooks/:id", whAdmin.Update)
+	authed.DELETE("/webhooks/:id", whAdmin.Revoke)
+	authed.GET("/webhooks/:id/deliveries", whAdmin.Deliveries)
 	phase5http.RegisterRoutes(e, &phase5http.PublicDeps{
 		Logger:                   logger,
 		AccountsList:             p1.ListAccounts,
@@ -322,5 +341,5 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		slog.Int("rate_per_minute", cfg.APIPublicRatePerMinute),
 		slog.Int("rate_burst", cfg.APIPublicRateBurst))
 
-	return syncWk
+	return syncWk, whWk
 }

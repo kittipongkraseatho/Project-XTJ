@@ -53,11 +53,14 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*echo.Ec
 	e.Use(observability.AccessLog(logger))
 
 	rl := observability.NewRateLimiter(rdb)
-	syncWk := RegisterRoutes(e, pool, rdb, rl, cfg, logger, workerPool)
+	syncWk, whWk := RegisterRoutes(e, pool, rdb, rl, cfg, logger, workerPool)
 
 	cleanup := func() {
 		if syncWk != nil {
 			syncWk.Stop()
+		}
+		if whWk != nil {
+			whWk.Stop()
 		}
 		workerPool.Drain(15 * time.Second)
 		pool.Close()
