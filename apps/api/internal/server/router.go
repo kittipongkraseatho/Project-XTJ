@@ -15,14 +15,18 @@ import (
 	phase1http "github.com/trading-journal/api/internal/httpapi/phase1"
 	phase2http "github.com/trading-journal/api/internal/httpapi/phase2"
 	phase3http "github.com/trading-journal/api/internal/httpapi/phase3"
+	phase4http "github.com/trading-journal/api/internal/httpapi/phase4"
 	"github.com/trading-journal/api/internal/domain/broker_connection"
+	"github.com/trading-journal/api/internal/integration/billing"
 	"github.com/trading-journal/api/internal/integration/broker"
+	"github.com/trading-journal/api/internal/integration/mailer"
 	"github.com/trading-journal/api/internal/integration/pdfreport"
 	"github.com/trading-journal/api/internal/integration/cloudinary"
 	"github.com/trading-journal/api/internal/integration/oauth"
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/service"
 	"github.com/trading-journal/api/internal/store"
+	schedulesvc "github.com/trading-journal/api/internal/service/report_schedule"
 	"github.com/trading-journal/api/internal/syncsvc"
 	"github.com/trading-journal/api/internal/worker"
 )
@@ -192,6 +196,78 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 
 	// Phase 3 — PDF reports (auth + tenant scoped)
 	authed.POST("/reports/pdf", p3.GeneratePDF)
+
+	// Phase 4 — billing (Stripe) + email scheduling (auth + tenant scoped)
+	// Stripe vs Stub: env-gated. Empty STRIPE_SECRET_KEY → Stub.
+	var billingSvc billing.Service = billing.NewStubService()
+	if cfg.StripeBillingEnabled() {
+		priceByPlan := map[string]string{
+			"upload_journal": cfg.StripePriceUploadJournal,
+			"starter":        cfg.StripePriceStarter,
+			"pro":            cfg.StripePricePro,
+		}
+		s, err := billing.NewStripeService(billing.Config{
+			SecretKey:     cfg.StripeSecretKey,
+			WebhookSecret: cfg.StripeWebhookSecret,
+			PriceByPlan:   priceByPlan,
+		})
+		if err != nil {
+			logger.Warn("stripe init failed, falling back to stub", "err", err)
+		} else {
+			billingSvc = s
+			logger.Info("stripe billing enabled")
+		}
+	} else {
+		logger.Warn("stripe not configured (env STRIPE_SECRET_KEY missing) — using stub")
+	}
+
+	// Mailer: StubMailer if SMTP_HOST is empty, else SMTPMailer.
+	var mailSvc mailer.Service = mailer.NewStubMailer("")
+	if cfg.SMTPEnabled() {
+		smtpMail, err := mailer.NewSMTPMailer(mailer.SMTPMailerConfig{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort,
+			Username: cfg.SMTPUsername, Password: cfg.SMTPPassword,
+			From: cfg.SMTPFrom,
+		})
+		if err != nil {
+			logger.Warn("smtp init failed, falling back to stub", "err", err)
+		} else {
+			mailSvc = smtpMail
+			logger.Info("smtp mailer enabled")
+		}
+	}
+
+	// Schedule worker — polls report_schedules every 60s.
+	schedSvc := schedulesvc.NewScheduleService(st, logger)
+	schedWk := worker.NewScheduleWorker(context.Background(), st, pdfImpl, mailSvc, logger, worker.ScheduleWorkerOptions{})
+	schedWk.Start()
+	p4 := phase4http.New(st, billingSvc, logger)
+	p4s := phase4http.NewSchedulesHandler(st, schedSvc, logger)
+
+	authed.GET("/billing/plans", p4.ListPlans)
+	authed.POST("/billing/checkout", p4.Checkout)
+	authed.GET("/billing/portal", p4.Portal)
+	authed.GET("/billing/subscription", p4.CurrentSubscription)
+	authed.POST("/billing/cancel", p4.Cancel)
+	authed.GET("/billing/payments", p4.Payments)
+	authed.GET("/reports/schedules", p4s.List)
+	authed.POST("/reports/schedules", p4s.Create)
+	authed.GET("/reports/schedules/:id", p4s.Get)
+	authed.DELETE("/reports/schedules/:id", p4s.Delete)
+
+	// Phase 4 — broker registry: register MetaApi if env-gated.
+	if cfg.MetaApiEnabled() {
+		brokerReg.Set(broker_connection.ProviderMetaApi,
+			broker.NewMetaApiAdapter(broker.MetaApiConfig{
+				Token: cfg.MetaAPIToken,
+				Region: cfg.MetaAPIRegion,
+				AccountID: cfg.MetaAPIAccountID,
+			}))
+		logger.Info("metaapi provider registered")
+	}
+
+	// Webhook is public — mount OUTSIDE the authed group.
+	e.POST("/v1/billing/webhook", p4.Webhook)
 
 	return syncWk
 }

@@ -56,6 +56,25 @@ type Config struct {
 
 	// Phase 2 — broker sync worker
 	SyncPollIntervalSeconds int `envconfig:"SYNC_POLL_INTERVAL_SECONDS" default:"30"`
+
+	// Phase 4 — billing (Stripe)
+	StripeSecretKey           string `envconfig:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret       string `envconfig:"STRIPE_WEBHOOK_SECRET"`
+	StripePriceUploadJournal   string `envconfig:"STRIPE_PRICE_UPLOAD_JOURNAL"`
+	StripePriceStarter         string `envconfig:"STRIPE_PRICE_STARTER"`
+	StripePricePro             string `envconfig:"STRIPE_PRICE_PRO"`
+
+	// Phase 4 — email (SMTP)
+	SMTPHost     string `envconfig:"SMTP_HOST"`
+	SMTPPort     int    `envconfig:"SMTP_PORT" default:"587"`
+	SMTPUsername string `envconfig:"SMTP_USERNAME"`
+	SMTPPassword string `envconfig:"SMTP_PASSWORD"`
+	SMTPFrom     string `envconfig:"SMTP_FROM" default:"Trading Journal <noreply@trading-journal.local>"`
+
+	// Phase 4 — MetaApi
+	MetaAPIToken     string `envconfig:"METAAPI_TOKEN"`
+	MetaAPIRegion    string `envconfig:"METAAPI_REGION" default:"ap-southeast"`
+	MetaAPIAccountID string `envconfig:"METAAPI_ACCOUNT_ID"`
 }
 
 // Load reads env vars and returns a Config.
@@ -100,4 +119,21 @@ func (c *Config) SyncPollInterval() time.Duration {
 		return 30 * time.Second
 	}
 	return time.Duration(c.SyncPollIntervalSeconds) * time.Second
+}
+
+// StripeBillingEnabled returns true iff STRIPE_SECRET_KEY is set. Drives the
+// provider choice in router.go (Stripe vs Stub).
+func (c *Config) StripeBillingEnabled() bool {
+	return c.StripeSecretKey != ""
+}
+
+// SMTPEnabled returns true iff SMTP_HOST is set.
+func (c *Config) SMTPEnabled() bool {
+	return c.SMTPHost != ""
+}
+
+// MetaApiEnabled returns true iff METAAPI_TOKEN is set. Drives the broker
+// registry choice in router.go (MetaApi vs Mock-only).
+func (c *Config) MetaApiEnabled() bool {
+	return c.MetaAPIToken != ""
 }
