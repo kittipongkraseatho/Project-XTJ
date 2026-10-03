@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -117,7 +118,11 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	// `import.completed` + `trade.created` events as it finishes a job.
 	whSvcImpl := whsvc.NewServiceImpl(st)
 	importSvc.AttachWebhookService(whSvcImpl)
-	whWk := worker.NewWebhookWorker(context.Background(), st, whSvcImpl, logger, worker.WebhookWorkerOptions{})
+	whWk := worker.NewWebhookWorker(context.Background(), st, whSvcImpl, logger, worker.WebhookWorkerOptions{
+		PollInterval:   time.Duration(cfg.WebhookPollIntervalSeconds) * time.Second,
+		BatchSize:      cfg.WebhookBatchSize,
+		RequestTimeout: time.Duration(cfg.WebhookHTTPTimeoutSeconds) * time.Second,
+})
 	whWk.Start()
 
 	var cldSvc cloudinary.Service = cloudinary.StubService{}

@@ -84,6 +84,12 @@ type Config struct {
 	RateLimitBackend    string `envconfig:"RATE_LIMIT_BACKEND" default:"memory"`
 	RateLimitKeyPrefix  string `envconfig:"RATE_LIMIT_KEY_PREFIX" default:"trj:rl:"`
 	RateLimitTTLSeconds int    `envconfig:"RATE_LIMIT_TTL_SECONDS" default:"3600"`
+
+	// Phase 5.2 — Webhook delivery knobs
+	WebhookPollIntervalSeconds int `envconfig:"WEBHOOK_POLL_INTERVAL_SECONDS" default:"30"`
+	WebhookBatchSize           int `envconfig:"WEBHOOK_BATCH_SIZE" default:"50"`
+	WebhookHTTPTimeoutSeconds  int `envconfig:"WEBHOOK_HTTP_TIMEOUT_SECONDS" default:"10"`
+	WebhookMaxAttempts         int `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"5"`
 }
 
 // Load reads env vars and returns a Config.

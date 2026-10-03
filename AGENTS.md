@@ -12,7 +12,7 @@
 
 ## Current phase
 
-**Phase 5.1 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening shipped.**
+**Phase 5.2 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks shipped.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
@@ -21,16 +21,22 @@
 - Phase 4 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase4-design.md` — Billing (Stripe) + Real MetaApi + Email scheduling ✅ shipped
 - Phase 5 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` — Public API + Scoped API Keys ✅ shipped
 - Phase 5.1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` — Redis rate limit + Integration test ✅ shipped
+- Phase 5.2 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` — Outbound webhooks ✅ shipped
 
 **Phase 5.1 in scope (delivered):** Extracted `ratelimit.KeyBucket` interface · renamed Phase 5 in-process impl to `MemoryKeyBucket` · new `RedisKeyBucket` (atomic Lua token-bucket, fail-open on Redis error, TTL-based GC) · `RATE_LIMIT_BACKEND=memory|redis` env-gated router swap · E2E integration test (testcontainers-go Postgres+Redis) covering 10-step API-key lifecycle: register → /me → mint → public-with-key → scope guard → burst → 429 → revoke → reuse-401 (revoked) → list-confirms-revoked. Skipped unless `INTEGRATION_TESTS=on` + Docker available; runs in CI.
+
+**Phase 5.2 in scope (delivered):** 2 new tables (`webhook_subscriptions` + `webhook_deliveries`) · `webhook.Service` interface + `ServiceImpl` (HMAC-SHA256 signing with timestamp anti-replay; plaintext secret at rest, shown ONCE) · `webhook.EventType` (2 events: `import.completed`, `trade.created`) · `WebhookWorker` (30s poll, single-flight, retry classification: 408/429/5xx → retry, other 4xx → permanent fail; exponential backoff 1m/5m/30m/2h/12h, max 5 attempts) · Emitters added to `ImportService.RunPipeline` (one `import.completed` per job + one `trade.created` per trade) · 6 admin endpoints under `/v1/webhooks` (JWT-authed: list / get / create / patch / delete / deliveries drill) · FE `/webhooks` page (table + create dialog + one-shot plaintext display + revoke + click-to-drill deliveries) · `useWebhooks` composable + nav link + footer label → Phase 5.2.
 
 **Deferred (Phase 6+ — outside initial master plan):**
 - AI analysis (LLM trade commentary)
 - Real MetaApi SDK handshake (provider returns ErrProviderNotConfigured until METAAPI_TOKEN is set)
-- Stripe webhook → subscription state-machine application (verification-only in Phase 5)
-- `write:journal` / `write:webhooks` scopes (Phase 5 is read-only)
-- Webhook delivery / inbound webhooks (Phase 5.2)
+- Stripe webhook → subscription state-machine application (verification-only)
+- `write:journal` / `write:webhooks` scopes (admin endpoints are JWT-only)
+- More webhook event types (Phase 5.2: import.completed + trade.created only)
 - Per-key (per-user) rate-limit override
+- Inbound webhooks (Phase 5.2 is outbound only)
+- Webhook event filtering (e.g. "only emit for account X")
+- Bulk retry / replay of exhausted deliveries
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -89,8 +95,9 @@
 | Phase 4 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase4-design.md` |
 | Phase 5 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` |
 | Phase 5.1 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` |
+| Phase 5.2 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
-| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5) |
+| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2) |
 | sqlc queries | `apps/api/queries/` |
 | Domain entities | `apps/api/internal/domain/<entity>/` |
 | HTTP handlers | `apps/api/internal/httpapi/` |
@@ -109,16 +116,19 @@
 | Cloudinary integration | `apps/api/internal/integration/cloudinary/` |
 | API keys | `apps/api/internal/integration/apikey/` |
 | Rate limit | `apps/api/internal/ratelimit/` |
+| Webhooks (outbound) | `apps/api/internal/integration/webhook/` + `apps/api/internal/worker/webhook_worker.go` |
 | Phase 1 handlers | `apps/api/internal/httpapi/phase1/` |
 | Phase 2 handlers | `apps/api/internal/httpapi/phase2/` |
 | Phase 3 handlers | `apps/api/internal/httpapi/phase3/` |
 | Phase 4 handlers | `apps/api/internal/httpapi/phase4/` |
 | Phase 5 handlers | `apps/api/internal/httpapi/phase5/` |
+| Phase 6 (webhooks) handlers | `apps/api/internal/httpapi/phase6/` |
 | Phase 1 store repos | `apps/api/internal/store/phase1_repos.go` |
 | Phase 2 store repos | `apps/api/internal/store/phase2_repos.go` |
 | Phase 3 store repos | `apps/api/internal/store/phase3_repos.go` |
 | Phase 4 store repos | `apps/api/internal/store/phase4_repos.go` |
 | Phase 5 store repos | `apps/api/internal/store/phase5_repos.go` |
+| Phase 5.2 store repos | `apps/api/internal/store/phase7_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
@@ -138,6 +148,7 @@
 - **Adding a new API scope (Phase 5+):** add the constant in `internal/domain/api_key/api_key.go`, append to `AllScopes`, add to `shared/src` if FE needs it, then mount a new group in `internal/httpapi/phase5/public_handler.go` with `apikey.Middleware(svc, bucket, scope)`.
 - **Adding a new public endpoint (Phase 5+):** pick the right group in `internal/httpapi/phase5/public_handler.go` (read:accounts / read:trades / read:analytics / read:payments), bind the handler function in `PublicDeps`, and wire it in `internal/server/router.go`. Keep the handler thin — delegate to the existing phase1/4 implementation.
 - **Adding a new rate limit backend (Phase 5.1+):** implement `ratelimit.KeyBucket` interface (`Allow(uuid) Decision`, `Close() error`) and add the wiring switch in `internal/server/router.go`. The middleware only inspects `Decision.Allowed`. Don't bypass the interface for one-off buckets — that breaks the prod/dev swap.
+- **Adding a new webhook event type (Phase 5.2+):** add a constant in `internal/domain/webhook/webhook.go` (EventType + append to AllEventTypes), then call `webhookSvc.Emit(ctx, EmitInput{EventType: <new>, Data: ...})` from wherever the event happens. The worker picks the row up on the next tick. Update the FE `useWebhooks.ts` `ALL_WEBHOOK_EVENTS` and the `/webhooks` page checkbox list.
 - **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
 - **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
