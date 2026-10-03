@@ -1,11 +1,14 @@
-// Package service — SyncService orchestrates broker → deals → trades.
+// Package syncsvc — SyncService orchestrates broker → deals → trades.
 //
 // The headline invariant: a sync_run and a manual import_job both produce
 // the same row shape and go through the same ON CONFLICT DO NOTHING dedup
 // in dealRepo.Insert. A second sync on the same MockProvider (or any
 // provider that emits stable provider_deal_id values) writes 0 new deals —
 // which is exactly what lets us demo MetaApi reuse of the Phase 1 dedup.
-package service
+//
+// Lives in its own package (not service/) so worker.SyncWorker can import it
+// without an import cycle: service.ImportService depends on worker.Pool.
+package syncsvc
 
 import (
 	"context"
@@ -374,6 +377,7 @@ func sevenDaysAgoIfZero(t *time.Time, ref time.Time) time.Time {
 }
 
 func ptrErrMsg(s string) *string { return &s }
+func strPtr(s string) *string   { return &s }
 
 func brokerDealToDealRow(bd broker.Deal, conn *broker_connection.BrokerConnection, runID uuid.UUID) *deal.Deal {
 	id, _ := uuid.NewV7()
