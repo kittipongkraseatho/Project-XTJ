@@ -53,6 +53,9 @@ type Config struct {
 	CloudinaryAPIKey    string `envconfig:"CLOUDINARY_API_KEY"`
 	CloudinaryAPISecret string `envconfig:"CLOUDINARY_API_SECRET"`
 	CloudinaryFolder    string `envconfig:"CLOUDINARY_FOLDER" default:"trading-journal"`
+
+	// Phase 2 — broker sync worker
+	SyncPollIntervalSeconds int `envconfig:"SYNC_POLL_INTERVAL_SECONDS" default:"30"`
 }
 
 // Load reads env vars and returns a Config.
@@ -88,4 +91,13 @@ func (c *Config) CORSAllowed() []string {
 		}
 	}
 	return out
+}
+
+// SyncPollInterval returns the SyncWorker's poll cadence as a Duration. Falls
+// back to 30s if the env var is unset or zero.
+func (c *Config) SyncPollInterval() time.Duration {
+	if c.SyncPollIntervalSeconds <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(c.SyncPollIntervalSeconds) * time.Second
 }

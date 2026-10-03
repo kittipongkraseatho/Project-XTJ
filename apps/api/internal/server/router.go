@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,11 +13,15 @@ import (
 	authhttp "github.com/trading-journal/api/internal/httpapi/auth"
 	mehttp "github.com/trading-journal/api/internal/httpapi/me"
 	phase1http "github.com/trading-journal/api/internal/httpapi/phase1"
+	phase2http "github.com/trading-journal/api/internal/httpapi/phase2"
+	"github.com/trading-journal/api/internal/domain/broker_connection"
+	"github.com/trading-journal/api/internal/integration/broker"
 	"github.com/trading-journal/api/internal/integration/cloudinary"
 	"github.com/trading-journal/api/internal/integration/oauth"
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/service"
 	"github.com/trading-journal/api/internal/store"
+	"github.com/trading-journal/api/internal/syncsvc"
 	"github.com/trading-journal/api/internal/worker"
 )
 
@@ -51,7 +56,18 @@ import (
 //   - GET  /v1/analytics/daily-pl     (auth required)
 //   - GET  /v1/analytics/equity-curve (auth required)
 //   - GET  /v1/analytics/symbol-breakdown (auth required, Phase 1 §30 advanced)
-func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *observability.RateLimiter, cfg *config.Config, logger *slog.Logger, workerPool *worker.Pool) {
+//
+// Phase 2 endpoints (all real):
+//
+//   - GET    /v1/brokers/connections            (auth required)
+//   - POST   /v1/brokers/connections            (auth required)
+//   - GET    /v1/brokers/connections/:id        (auth required)
+//   - POST   /v1/brokers/connections/:id/sync   (auth required)
+//   - POST   /v1/brokers/connections/:id/disconnect (auth required)
+//   - DELETE /v1/brokers/connections/:id        (auth required)
+//   - GET    /v1/brokers/connections/:id/sync-runs (auth required)
+//   - GET    /v1/brokers/sync-runs/:id          (auth required)
+func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *observability.RateLimiter, cfg *config.Config, logger *slog.Logger, workerPool *worker.Pool) *worker.SyncWorker {
 	// System endpoints (no auth, no rate limit)
 	e.GET("/healthz", Healthz())
 	e.GET("/livez", Healthz())
@@ -100,6 +116,19 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 
 	p1 := phase1http.New(st, importSvc, cldSvc, logger)
 
+	// Phase 2 — broker registry (mock-only) + SyncService + SyncWorker.
+	brokerReg := broker.NewRegistry(map[broker_connection.Provider]broker.Provider{
+		broker_connection.ProviderMock: broker.NewMockProvider(),
+		// Phase 4: real MetaApi adapter plugged here behind env gate.
+	})
+	syncSvc := syncsvc.NewSyncService(st, brokerReg, logger)
+	syncWk := worker.NewSyncWorker(context.Background(), st, workerPool, syncSvc, logger, worker.SyncWorkerOptions{
+		PollInterval:  cfg.SyncPollInterval(), // 30s default
+		PollBatchSize: 100,
+	})
+	syncWk.Start()
+	p2 := phase2http.New(st, syncSvc, syncWk, brokerReg, logger)
+
 	v1 := e.Group("/v1")
 
 	// Public auth (rate-limited per IP)
@@ -139,4 +168,16 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.GET("/tags", p1.ListTags)
 	authed.POST("/tags", p1.CreateTag)
 	authed.DELETE("/tags/:id", p1.DeleteTag)
+
+	// Phase 2 — broker connections + sync (auth + tenant scoped)
+	authed.GET("/brokers/connections", p2.ListConnections)
+	authed.POST("/brokers/connections", p2.CreateConnection)
+	authed.GET("/brokers/connections/:id", p2.GetConnection)
+	authed.POST("/brokers/connections/:id/disconnect", p2.Disconnect)
+	authed.DELETE("/brokers/connections/:id", p2.DeleteConnection)
+	authed.POST("/brokers/connections/:id/sync", p2.TriggerSync)
+	authed.GET("/brokers/connections/:id/sync-runs", p2.ListSyncRuns)
+	authed.GET("/brokers/sync-runs/:id", p2.GetSyncRun)
+
+	return syncWk
 }
