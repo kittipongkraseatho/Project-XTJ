@@ -399,6 +399,31 @@ func (h *Handler) ListAccounts(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"accounts": accounts})
 }
 
+// GetAccount — GET /v1/accounts/:id (Phase 5 — public API)
+//
+// Tenant-scoped lookup. Returns 404 if the row belongs to another tenant,
+// so cross-tenant probing can't be distinguished from "missing".
+func (h *Handler) GetAccount(c echo.Context) error {
+	_, tid, ok := idsFromCtx(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, observability.FromError(observability.ErrUnauthorized))
+	}
+	id, err := uuid.FromString(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusUnprocessableEntity, observability.FromError(
+			observability.ErrValidation.WithDetails(map[string]any{"reason": "invalid id"})))
+	}
+	a, err := h.store.TradingAccounts.GetByIDByTenant(c.Request().Context(), tid, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return c.JSON(http.StatusNotFound, observability.FromError(observability.ErrValidation.WithDetails(
+				map[string]any{"reason": "account not found"})))
+		}
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	return c.JSON(http.StatusOK, map[string]any{"account": a})
+}
+
 // CreateAccount — POST /v1/accounts
 //
 // Phase 3: enforces the tenant's plan limit (max-trading-accounts) before

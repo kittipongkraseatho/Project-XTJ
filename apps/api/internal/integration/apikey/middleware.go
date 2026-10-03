@@ -75,6 +75,9 @@ func Middleware(svc Service, bucket *ratelimit.KeyBucket, required api_key.Scope
 			ctx := tenant.WithTenantID(c.Request().Context(), k.TenantID)
 			ctx = WithAPIKey(ctx, k)
 			c.SetRequest(c.Request().WithContext(ctx))
+			// Echo-context tenant key — required by phase1/4 handlers that read
+			// c.Get("tenant_id") rather than ctx.
+			c.Set("tenant_id", k.TenantID.String())
 			return next(c)
 		}
 	}

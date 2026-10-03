@@ -16,7 +16,9 @@ import (
 	phase2http "github.com/trading-journal/api/internal/httpapi/phase2"
 	phase3http "github.com/trading-journal/api/internal/httpapi/phase3"
 	phase4http "github.com/trading-journal/api/internal/httpapi/phase4"
+	phase5http "github.com/trading-journal/api/internal/httpapi/phase5"
 	"github.com/trading-journal/api/internal/domain/broker_connection"
+	"github.com/trading-journal/api/internal/integration/apikey"
 	"github.com/trading-journal/api/internal/integration/billing"
 	"github.com/trading-journal/api/internal/integration/broker"
 	"github.com/trading-journal/api/internal/integration/mailer"
@@ -24,6 +26,7 @@ import (
 	"github.com/trading-journal/api/internal/integration/cloudinary"
 	"github.com/trading-journal/api/internal/integration/oauth"
 	"github.com/trading-journal/api/internal/observability"
+	"github.com/trading-journal/api/internal/ratelimit"
 	"github.com/trading-journal/api/internal/service"
 	"github.com/trading-journal/api/internal/store"
 	schedulesvc "github.com/trading-journal/api/internal/service/report_schedule"
@@ -268,6 +271,34 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 
 	// Webhook is public — mount OUTSIDE the authed group.
 	e.POST("/v1/billing/webhook", p4.Webhook)
+
+	// Phase 5 — Public API (API-key auth, not JWT).
+	// 60 req/min per key, burst 10 — see Phase 5 design §6.
+	apiKeyBucket := ratelimit.NewKeyBucket(60, 10)
+	apiKeySvc := apikey.NewServiceImpl(st)
+	apiKeyAdmin := phase5http.NewAdminHandler(apiKeySvc, logger)
+	authed.GET("/api-keys", apiKeyAdmin.List)
+	authed.POST("/api-keys", apiKeyAdmin.Generate)
+	authed.GET("/api-keys/:id", apiKeyAdmin.Get)
+	authed.PATCH("/api-keys/:id", apiKeyAdmin.Update)
+	authed.DELETE("/api-keys/:id", apiKeyAdmin.Revoke)
+	phase5http.RegisterRoutes(e, &phase5http.PublicDeps{
+		Logger:                   logger,
+		AccountsList:             p1.ListAccounts,
+		AccountsGet:              p1.GetAccount,
+		TradesList:               p1.ListTrades,
+		TradesGet:                p1.GetTrade,
+		AnalyticsOverview:        p1.OverviewAnalytics,
+		AnalyticsDailyPL:         p1.DailyPL,
+		AnalyticsEquityCurve:     p1.EquityCurve,
+		AnalyticsSymbolBreakdown: p1.SymbolBreakdown,
+		AnalyticsSession:         p1.SessionBreakdown,
+		AnalyticsEA:              p1.EABreakdown,
+		AnalyticsDayOfWeek:       p1.DayOfWeekBreakdown,
+		AnalyticsHourOfDay:       p1.HourOfDayBreakdown,
+		BillingPayments:          p4.Payments,
+	}, apiKeySvc, apiKeyBucket)
+	logger.Info("public api registered", slog.String("rate_per_min", "60"))
 
 	return syncWk
 }

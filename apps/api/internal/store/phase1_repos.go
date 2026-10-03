@@ -97,6 +97,34 @@ func (r *TradingAccountRepo) GetByID(ctx context.Context, id uuid.UUID) (*tradin
 	return &a, nil
 }
 
+// GetByIDByTenant is the tenant-scoped variant — returns ErrNotFound if the
+// row exists but belongs to another tenant (or doesn't exist).
+//
+// Phase 5: used by the /v1/public/accounts/:id endpoint to guarantee
+// tenant isolation even if a malicious caller crafts a UUID.
+func (r *TradingAccountRepo) GetByIDByTenant(ctx context.Context, tenantID, id uuid.UUID) (*trading_account.TradingAccount, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT id, user_id, tenant_id, broker, broker_account_id, display_name, currency, leverage, kind, metadata, is_active, created_at, updated_at
+		FROM trading_accounts WHERE id = $1 AND tenant_id = $2`, id, tenantID)
+	var a trading_account.TradingAccount
+	var metaRaw []byte
+	if err := row.Scan(&a.ID, &a.UserID, &a.TenantID, &a.Broker, &a.BrokerAccountID,
+		&a.DisplayName, &a.Currency, &a.Leverage, &a.Kind, &metaRaw, &a.IsActive,
+		&a.CreatedAt, &a.UpdatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if len(metaRaw) > 0 {
+		_ = json.Unmarshal(metaRaw, &a.Metadata)
+	}
+	if a.Metadata == nil {
+		a.Metadata = map[string]any{}
+	}
+	return &a, nil
+}
+
 // ── ImportedFileRepo ──────────────────────────────────────────────────
 
 type ImportedFileRepo struct{ pool DBTX }
