@@ -66,3 +66,72 @@ export interface ApiErrorBody {
 export interface ApiErrorResponse {
   error: ApiErrorBody
 }
+
+// ── Phase 1 types ──────────────────────────────────────────────────────
+
+export type TradeDirection = 'long' | 'short'
+export type TradeOutcome = 'win' | 'loss' | 'breakeven'
+
+export interface TradeDTO {
+  id: string
+  symbol: string
+  direction: TradeDirection
+  open_time: string
+  close_time: string
+  net_p_l: number
+  outcome: TradeOutcome
+}
+
+export interface Trade {
+  id: string
+  tenant_id: string
+  user_id: string
+  trading_account_id: string
+  position_id: string | null
+  symbol: string
+  direction: TradeDirection
+  volume: number
+  open_price: number
+  close_price: number | null
+  open_time: string
+  close_time: string | null
+  holding_seconds: number | null
+  gross_profit: number
+  gross_loss: number
+  net_p_l: number
+  commission: number
+  swap: number
+  outcome: TradeOutcome
+  is_partial: boolean
+  created_at: string
+}
+
+export interface TradingAccount {
+  id: string
+  user_id: string
+  tenant_id: string
+  broker: 'mt5' | 'mt4' | 'ctrader' | 'custom'
+  broker_account_id: string
+  display_name: string
+  currency: string
+  leverage: number | null
+  kind: 'demo' | 'real'
+  is_active: boolean
+  created_at: string
+}
+
+export type ImportStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface ImportJob {
+  id: string
+  tenant_id: string
+  imported_file_id: string
+  status: ImportStatus
+  started_at: string | null
+  finished_at: string | null
+  parsed_rows: number
+  inserted_rows: number
+  skipped_rows: number
+  errors: unknown[]
+  created_at: string
+}

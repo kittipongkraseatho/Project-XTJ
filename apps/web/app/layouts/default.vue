@@ -10,9 +10,10 @@ const navItems = computed(() => {
   if (!auth.isAuthed) return []
   return [
     { title: 'Dashboard', to: '/dashboard' },
-    { title: 'Trades', to: '/trades', disabled: true },
-    { title: 'Analytics', to: '/analytics', disabled: true },
-    { title: 'Settings', to: '/settings', disabled: true },
+    { title: 'Trades', to: '/trades' },
+    { title: 'Imports', to: '/imports' },
+    { title: 'Analytics', to: '/analytics' },
+    { title: 'Accounts', to: '/accounts' },
   ]
 })
 
