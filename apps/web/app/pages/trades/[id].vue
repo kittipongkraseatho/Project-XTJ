@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // /trades/:id — trade detail page (Phase 1 spec §23) — extended w/ journal, tags, screenshots
-import { ref, onMounted, computed } from 'vue'
+// + Phase 6 AI Analysis panel.
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useTrades } from '~/composables/useTrades'
+import { useAnalysis, type Analysis, type Usage } from '~/composables/useAnalysis'
 import type { Trade } from '@trading-journal/shared'
 
 definePageMeta({ name: 'trade-detail' })
@@ -9,20 +11,75 @@ definePageMeta({ name: 'trade-detail' })
 const route = useRoute()
 const router = useRouter()
 const { get } = useTrades()
+const { analyze, getLatest, getUsage } = useAnalysis()
 
 const trade = ref<Trade | null>(null)
 const loading = ref(true)
 const errorMsg = ref<string | null>(null)
 
-onMounted(async () => {
+// AI panel state
+const analysis = ref<Analysis | null>(null)
+const usage = ref<Usage | null>(null)
+const analysisBusy = ref(false)
+const analysisErr = ref<string | null>(null)
+let pollHandle: ReturnType<typeof setInterval> | null = null
+
+async function refreshUsage() {
   try {
-    trade.value = await get(route.params.id as string)
-  } catch (err: any) {
-    errorMsg.value = err?.message ?? 'Failed to load trade'
-  } finally {
-    loading.value = false
+    usage.value = await getUsage()
+  } catch {
+    // Non-fatal.
   }
-})
+}
+
+async function loadExisting() {
+  try {
+    analysis.value = await getLatest(route.params.id as string)
+  } catch {
+    analysis.value = null
+  }
+}
+
+async function startPolling() {
+  stopPolling()
+  pollHandle = setInterval(async () => {
+    if (!analysis.value) return
+    if (analysis.value.status !== 'pending' && analysis.value.status !== 'generating') return
+    try {
+      analysis.value = await getLatest(route.params.id as string)
+    } catch {
+      // keep polling; FE handles transient errors
+    }
+  }, 3000)
+}
+
+function stopPolling() {
+  if (pollHandle) {
+    clearInterval(pollHandle)
+    pollHandle = null
+  }
+}
+
+async function onAnalyze() {
+  if (!trade.value) return
+  analysisBusy.value = true
+  analysisErr.value = null
+  try {
+    analysis.value = await analyze(trade.value.id)
+    await refreshUsage()
+    if (analysis.value.status === 'pending' || analysis.value.status === 'generating') {
+      startPolling()
+    }
+  } catch (err: any) {
+    if (err?.statusCode === 402) {
+      analysisErr.value = 'Daily budget exhausted. Try again tomorrow.'
+    } else {
+      analysisErr.value = err?.data?.error?.message ?? err?.message ?? 'Analyze failed'
+    }
+  } finally {
+    analysisBusy.value = false
+  }
+}
 
 const pl = computed(() => trade.value?.net_p_l ?? 0)
 const plColor = computed(() => pl.value >= 0 ? 'success' : 'error')
@@ -40,6 +97,36 @@ function fmtMoney(n: number) {
 function fmtNum(n: number | null, d = 5) {
   return n == null ? '—' : n.toFixed(d)
 }
+function providerLabel(p: string): string {
+  if (p === 'openai') return 'OpenAI'
+  if (p === 'anthropic') return 'Anthropic'
+  return 'Stub (local)'
+}
+function statusColor(s: string): string {
+  switch (s) {
+    case 'success': return 'success'
+    case 'pending': return 'info'
+    case 'generating': return 'info'
+    case 'failed': return 'error'
+    default: return 'grey'
+  }
+}
+
+onMounted(async () => {
+  try {
+    trade.value = await get(route.params.id as string)
+    await Promise.all([loadExisting(), refreshUsage()])
+    if (analysis.value && (analysis.value.status === 'pending' || analysis.value.status === 'generating')) {
+      startPolling()
+    }
+  } catch (err: any) {
+    errorMsg.value = err?.message ?? 'Failed to load trade'
+  } finally {
+    loading.value = false
+  }
+})
+
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>
@@ -99,6 +186,55 @@ function fmtNum(n: number | null, d = 5) {
         </v-col>
 
         <v-col cols="12" md="6">
+          <v-card variant="outlined" class="pa-4 mb-4">
+            <div class="d-flex align-center mb-2">
+              <h2 class="text-h6">AI Analysis</h2>
+              <v-spacer />
+              <v-btn
+                color="primary"
+                :loading="analysisBusy"
+                prepend-icon="mdi-robot"
+                size="small"
+                @click="onAnalyze"
+              >
+                {{ analysis?.status === 'success' ? 'Regenerate' : 'Generate' }}
+              </v-btn>
+            </div>
+            <div class="text-caption text-medium-emphasis mb-3" v-if="usage">
+              {{ usage.requests }} / {{ usage.daily_budget }} used today
+              <span v-if="usage.headroom === 0" class="text-warning ml-2">(budget exhausted)</span>
+            </div>
+
+            <v-progress-linear
+              v-if="analysis?.status === 'pending' || analysis?.status === 'generating'"
+              indeterminate
+              color="info"
+              class="mb-2"
+            />
+            <v-skeleton-loader
+              v-if="analysis?.status === 'pending' || analysis?.status === 'generating'"
+              type="paragraph"
+            />
+
+            <v-alert v-if="analysisErr" type="error" :text="analysisErr" class="mb-2" />
+
+            <div v-if="analysis?.status === 'success' && analysis.content">
+              <p style="white-space: pre-wrap" class="text-body-1 mb-2">{{ analysis.content }}</p>
+              <div class="text-caption text-medium-emphasis d-flex align-center">
+                <v-chip size="x-small" :color="statusColor(analysis.status)" class="mr-2">{{ analysis.status }}</v-chip>
+                <span class="mr-2">Powered by <strong>{{ providerLabel(analysis.provider) }}</strong> ({{ analysis.model_id }})</span>
+                <span>· {{ analysis.tokens_in + analysis.tokens_out }} tokens</span>
+              </div>
+            </div>
+
+            <v-alert v-else-if="analysis?.status === 'failed'" type="error" :text="analysis.error || 'Analysis failed'" />
+
+            <div v-else-if="!analysis" class="text-body-2 text-medium-emphasis">
+              Click <strong>Generate</strong> to get an AI-powered 2-3 paragraph analysis of this trade
+              using your recent trading context.
+            </div>
+          </v-card>
+
           <ImageGrid :trade-id="trade.id" class="mb-4" />
           <TagPicker :trade-id="trade.id" class="mb-4" />
           <JournalEditor :trade-id="trade.id" />

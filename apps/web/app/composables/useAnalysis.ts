@@ -1,81 +1,60 @@
-// useAnalysis — Phase 3 advanced analytics composables.
+// useAnalysis — Phase 6 AI analysis composables.
+//
+// Flow: POST /v1/trades/:id/analyze → 202 with pending row OR 200 with
+// cached success. FE polls GET /v1/trades/:id/analysis every ~3s until
+// status flips from pending|generating → success|failed.
 
-export interface SessionRow {
-  bucket: 'asia' | 'london' | 'newyork' | 'sydney'
-  trade_count: number
-  wins: number
-  losses: number
-  breakevens: number
-  net_p_l: number
-  gross_profit: number
-  gross_loss: number
-  win_rate: number
-  profit_factor: number
+export type AnalysisStatus = 'pending' | 'generating' | 'success' | 'failed'
+
+export interface Analysis {
+  id: string
+  tenant_id: string
+  trade_id: string
+  prompt_hash: string
+  content: string | null
+  tokens_in: number
+  tokens_out: number
+  model_id: string
+  provider: string // 'stub' | 'openai' | 'anthropic'
+  status: AnalysisStatus
+  error: string | null
+  requested_by_user_id: string
+  requested_at: string
+  completed_at: string | null
 }
 
-export interface EARow {
-  bucket: string // magic as string ("0" for manual, "12345" for EA)
-  trade_count: number
-  wins: number
-  losses: number
-  breakevens: number
-  net_p_l: number
-  gross_profit: number
-  gross_loss: number
-  win_rate: number
-  profit_factor: number
-}
-
-export interface DayOfWeekRow {
-  bucket: string // "0".."6" (Sunday=0)
-  trade_count: number
-  wins: number
-  losses: number
-  breakevens: number
-  net_p_l: number
-  gross_profit: number
-  gross_loss: number
-  win_rate: number
-  profit_factor: number
-}
-
-export interface HourOfDayRow {
-  bucket: string // "0".."23"
-  trade_count: number
-  wins: number
-  losses: number
-  breakevens: number
-  net_p_l: number
-  gross_profit: number
-  gross_loss: number
-  win_rate: number
-  profit_factor: number
+export interface Usage {
+  day: string
+  requests: number
+  tokens_in: number
+  tokens_out: number
+  daily_budget: number
+  hard_daily_cap: number
+  headroom: number
 }
 
 export function useAnalysis() {
-  async function getSession(accountID: string | null = null) {
-    return await $fetch<{ sessions: SessionRow[] }>('/v1/analytics/session', {
-      query: accountID ? { account_id: accountID } : {},
+  /** Kick off (idempotent). Returns the analysis row (pending or cached). */
+  async function analyze(tradeId: string): Promise<Analysis> {
+    return await $fetch<Analysis>(`/v1/trades/${tradeId}/analyze`, {
+      method: 'POST',
     })
   }
 
-  async function getEA(accountID: string | null = null) {
-    return await $fetch<{ eas: EARow[] }>('/v1/analytics/ea', {
-      query: accountID ? { account_id: accountID } : {},
-    })
+  /** Get the latest analysis for a trade. Returns null if 404. */
+  async function getLatest(tradeId: string): Promise<Analysis | null> {
+    try {
+      return await $fetch<Analysis>(`/v1/trades/${tradeId}/analysis`)
+    } catch (err: any) {
+      if (err?.statusCode === 404) return null
+      throw err
+    }
   }
 
-  async function getDayOfWeek(accountID: string | null = null) {
-    return await $fetch<{ weekdays: DayOfWeekRow[] }>('/v1/analytics/day-of-week', {
-      query: accountID ? { account_id: accountID } : {},
-    })
+  /** Tenant's daily usage + budget. */
+  async function getUsage(): Promise<Usage> {
+    return await $fetch<Usage>('/v1/ai/usage')
   }
 
-  async function getHourOfDay(accountID: string | null = null) {
-    return await $fetch<{ hours: HourOfDayRow[] }>('/v1/analytics/hour-of-day', {
-      query: accountID ? { account_id: accountID } : {},
-    })
-  }
-
-  return { getSession, getEA, getDayOfWeek, getHourOfDay }
+  return { analyze, getLatest, getUsage }
 }
