@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -20,7 +21,9 @@ import (
 	phase4http "github.com/trading-journal/api/internal/httpapi/phase4"
 	phase5http "github.com/trading-journal/api/internal/httpapi/phase5"
 	phase6http "github.com/trading-journal/api/internal/httpapi/phase6"
+	"github.com/trading-journal/api/internal/domain/ai"
 	"github.com/trading-journal/api/internal/domain/broker_connection"
+	"github.com/trading-journal/api/internal/domain/trade"
 	aisvc "github.com/trading-journal/api/internal/integration/ai"
 	whsvc "github.com/trading-journal/api/internal/integration/webhook"
 	"github.com/trading-journal/api/internal/integration/apikey"
@@ -148,6 +151,32 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		})
 	})
 	logger.Info("ai provider", slog.String("provider", aiProvider.Name()))
+
+	// Phase 9 — Embedder (RAG) + EmbedService. Stub is always wired; OpenAI
+	// replaces it when EMBED_PROVIDER=openai AND OPENAI_API_KEY is present.
+	var emb aisvc.Embedder = aisvc.NewStubEmbedder()
+	if cfg.EmbedEnabled() {
+		e2, err := aisvc.NewOpenAIEmbedder(cfg.OpenAIKey, cfg.OpenAIEmbedModel, logger)
+		if err != nil {
+			logger.Warn("openai embedder init failed — using stub",
+				slog.String("err", err.Error()))
+		} else {
+			emb = e2
+		}
+	}
+	embedSvc := aisvc.NewEmbedService(aisvc.EmbedConfig{
+		Embedder: emb,
+		// Trade lookup: reuse existing TradeRepo via a tiny adapter.
+		TradeLoader: tradeEmbedLoaderAdapter{st: st},
+		Store:       embedStoreAdapter{st: st},
+		Log:         logger,
+	})
+	logger.Info("ai embedder", slog.String("provider", emb.Name()))
+
+	// Phase 9 — TradeEmbedJob enqueue hook. The hook is consumed by
+	// RecapService (§5) + ChatService (§6) when they need to embed the
+	// retrieved trade context on demand.
+	_ = embedSvc
 
 	var cldSvc cloudinary.Service = cloudinary.StubService{}
 	if cfg.CloudinaryEnabled() {
@@ -406,4 +435,34 @@ func buildAIProvider(cfg *config.Config, logger *slog.Logger) (aisvc.Provider, e
 	default:
 		return aisvc.NewStubProvider(), nil
 	}
+}
+
+// ── Phase 9 — Embedder wiring ────────────────────────────────────────
+
+// tradeEmbedLoaderAdapter bridges *store.Store into aisvc.EmbedTradeLoader.
+type tradeEmbedLoaderAdapter struct{ st *store.Store }
+
+func (a tradeEmbedLoaderAdapter) LoadTradeForEmbed(ctx context.Context, tenantID, tradeID uuid.UUID) (*trade.Trade, error) {
+	t, err := a.st.Trades.GetByID(ctx, tradeID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if t.TenantID != tenantID {
+		return nil, nil
+	}
+	return t, nil
+}
+
+// embedStoreAdapter bridges *store.Store into aisvc.EmbedStore.
+type embedStoreAdapter struct{ st *store.Store }
+
+func (a embedStoreAdapter) Upsert(ctx context.Context, e *ai.TradeEmbedding) error {
+	return a.st.TradeEmbeddings.Upsert(ctx, e)
+}
+
+func (a embedStoreAdapter) AddEmbeddingTokens(ctx context.Context, tenantID uuid.UUID, day time.Time, tokens int64) error {
+	return a.st.AIUsage.AddEmbeddingTokens(ctx, tenantID, day, tokens)
 }

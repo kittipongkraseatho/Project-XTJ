@@ -161,11 +161,11 @@ func (r *AIUsageDailyRepo) AddTokens(ctx context.Context, tenantID uuid.UUID, da
 func (r *AIUsageDailyRepo) GetForDay(ctx context.Context, tenantID uuid.UUID, day time.Time) (*ai.DailyUsage, error) {
 	dayStr := day.UTC().Format("2006-01-02")
 	row := r.pool.QueryRow(ctx, `
-		SELECT requests, tokens_in, tokens_out
+		SELECT requests, tokens_in, tokens_out, recap_requests, chat_requests, embedding_tokens
 		FROM ai_usage_daily
 		WHERE tenant_id = $1 AND day = $2`, tenantID, dayStr)
 	var u ai.DailyUsage
-	if err := row.Scan(&u.Requests, &u.TokensIn, &u.TokensOut); err != nil {
+	if err := row.Scan(&u.Requests, &u.TokensIn, &u.TokensOut, &u.RecapRequests, &u.ChatRequests, &u.EmbeddingTokens); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &ai.DailyUsage{Day: day}, nil
 		}
@@ -173,6 +173,46 @@ func (r *AIUsageDailyRepo) GetForDay(ctx context.Context, tenantID uuid.UUID, da
 	}
 	u.Day = day
 	return &u, nil
+}
+
+// IncrementRecapRequests bumps recap_requests by 1 (Phase 9 — weekly recap).
+func (r *AIUsageDailyRepo) IncrementRecapRequests(ctx context.Context, tenantID uuid.UUID, day time.Time) error {
+	id := uuid.Must(uuid.NewV7())
+	dayStr := day.UTC().Format("2006-01-02")
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO ai_usage_daily (id, tenant_id, day, requests, tokens_in, tokens_out,
+		                            chat_requests, recap_requests, embedding_tokens)
+		VALUES ($1, $2, $3, 0, 0, 0, 0, 1, 0)
+		ON CONFLICT (tenant_id, day) DO UPDATE
+		SET recap_requests = ai_usage_daily.recap_requests + 1`,
+		id, tenantID, dayStr)
+	return err
+}
+
+// IncrementChatRequests bumps chat_requests by 1 (Phase 9 — Q&A message kick).
+func (r *AIUsageDailyRepo) IncrementChatRequests(ctx context.Context, tenantID uuid.UUID, day time.Time) error {
+	id := uuid.Must(uuid.NewV7())
+	dayStr := day.UTC().Format("2006-01-02")
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO ai_usage_daily (id, tenant_id, day, requests, tokens_in, tokens_out,
+		                            chat_requests, recap_requests, embedding_tokens)
+		VALUES ($1, $2, $3, 0, 0, 0, 1, 0, 0)
+		ON CONFLICT (tenant_id, day) DO UPDATE
+		SET chat_requests = ai_usage_daily.chat_requests + 1`,
+		id, tenantID, dayStr)
+	return err
+}
+
+// AddEmbeddingTokens accumulates Phase 9 embedding token usage (cheap; no budget
+// deduction — separate counter, tracked for billing visibility only).
+func (r *AIUsageDailyRepo) AddEmbeddingTokens(ctx context.Context, tenantID uuid.UUID, day time.Time, tokens int64) error {
+	dayStr := day.UTC().Format("2006-01-02")
+	_, err := r.pool.Exec(ctx, `
+		UPDATE ai_usage_daily
+		SET embedding_tokens = embedding_tokens + $1
+		WHERE tenant_id = $2 AND day = $3`,
+		tokens, tenantID, dayStr)
+	return err
 }
 
 // ── row scanner ──────────────────────────────────────────────────────

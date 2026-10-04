@@ -100,6 +100,17 @@ type Config struct {
 	AnthropicKey   string `envconfig:"ANTHROPIC_API_KEY"`
 	AnthropicModel string `envconfig:"ANTHROPIC_MODEL" default:"claude-3-5-haiku-latest"`
 	AIMaxTokens    int    `envconfig:"AI_MAX_TOKENS" default:"600"`
+
+	// Phase 9 — Embedding (RAG)
+	EmbedProvider     string `envconfig:"EMBED_PROVIDER" default:"stub"` // stub | openai
+	OpenAIEmbedModel  string `envconfig:"OPENAI_EMBED_MODEL" default:"text-embedding-3-small"`
+	EmbedBatchSize    int    `envconfig:"EMBED_BATCH_SIZE" default:"20"`
+}
+
+// EmbedEnabled returns true when the embedder can be wired to a real provider.
+// (Stub embedder is always available — caller doesn't need to gate.)
+func (c *Config) EmbedEnabled() bool {
+	return c.EmbedProvider == "openai" && c.OpenAIKey != ""
 }
 
 // Load reads env vars and returns a Config.

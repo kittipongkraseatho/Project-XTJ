@@ -68,6 +68,10 @@ type Store struct {
 	WebhookEvents     *WebhookEventRepo
 	TradeAnalyses     *TradeAnalysisRepo
 	AIUsage           *AIUsageDailyRepo
+	Recaps            *RecapRepo
+	ChatThreads       *ChatThreadRepo
+	ChatMessages      *ChatMessageRepo
+	TradeEmbeddings   *TradeEmbeddingRepo
 }
 
 // New builds a Store with all repos wired to the given pool.
@@ -104,6 +108,10 @@ func New(pool *pgxpool.Pool) *Store {
 		WebhookEvents:     &WebhookEventRepo{pool: pool},
 		TradeAnalyses:     &TradeAnalysisRepo{pool: pool},
 		AIUsage:           &AIUsageDailyRepo{pool: pool},
+		Recaps:            &RecapRepo{pool: pool},
+		ChatThreads:       &ChatThreadRepo{pool: pool},
+		ChatMessages:      &ChatMessageRepo{pool: pool},
+		TradeEmbeddings:   &TradeEmbeddingRepo{pool: pool},
 	}
 }
 
