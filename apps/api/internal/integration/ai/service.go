@@ -125,6 +125,14 @@ type ServiceImpl struct {
 // to seed data; production code should not need this).
 func (s *ServiceImpl) Store() AnalysisStore { return s.store }
 
+// SetEnqueueAnalysis wires the worker-pool callback. Called by the
+// router after construction because the service depends on the
+// callback, which depends on the pool, which depends on the service —
+// a chicken-and-egg loop broken by deferred wiring.
+func (s *ServiceImpl) SetEnqueueAnalysis(fn func(analysisID uuid.UUID) error) {
+	s.enqueueAnalysis = fn
+}
+
 // ServiceConfig configures the service.
 type ServiceConfig struct {
 	Store    AnalysisStore

@@ -90,6 +90,14 @@ type Config struct {
 	WebhookBatchSize           int `envconfig:"WEBHOOK_BATCH_SIZE" default:"50"`
 	WebhookHTTPTimeoutSeconds  int `envconfig:"WEBHOOK_HTTP_TIMEOUT_SECONDS" default:"10"`
 	WebhookMaxAttempts         int `envconfig:"WEBHOOK_MAX_ATTEMPTS" default:"5"`
+
+	// Phase 6 — AI analysis
+	AIProvider     string `envconfig:"AI_PROVIDER" default:"stub"` // stub | openai | anthropic
+	OpenAIKey      string `envconfig:"OPENAI_API_KEY"`
+	OpenAIModel    string `envconfig:"OPENAI_MODEL" default:"gpt-4o-mini"`
+	AnthropicKey   string `envconfig:"ANTHROPIC_API_KEY"`
+	AnthropicModel string `envconfig:"ANTHROPIC_MODEL" default:"claude-3-5-haiku-latest"`
+	AIMaxTokens    int    `envconfig:"AI_MAX_TOKENS" default:"600"`
 }
 
 // Load reads env vars and returns a Config.

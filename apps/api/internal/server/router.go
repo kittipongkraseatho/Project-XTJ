@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
@@ -20,6 +21,7 @@ import (
 	phase5http "github.com/trading-journal/api/internal/httpapi/phase5"
 	phase6http "github.com/trading-journal/api/internal/httpapi/phase6"
 	"github.com/trading-journal/api/internal/domain/broker_connection"
+	aisvc "github.com/trading-journal/api/internal/integration/ai"
 	whsvc "github.com/trading-journal/api/internal/integration/webhook"
 	"github.com/trading-journal/api/internal/integration/apikey"
 	"github.com/trading-journal/api/internal/integration/billing"
@@ -124,6 +126,28 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		RequestTimeout: time.Duration(cfg.WebhookHTTPTimeoutSeconds) * time.Second,
 })
 	whWk.Start()
+
+	// Phase 6 — AI analysis service + worker pool job.
+	aiProvider, aiProviderErr := buildAIProvider(cfg, logger)
+	if aiProviderErr != nil {
+		logger.Warn("ai provider init failed — using stub", slog.String("err", aiProviderErr.Error()))
+		aiProvider = aisvc.NewStubProvider()
+	}
+	aiSvcImpl := aisvc.NewServiceImpl(aisvc.ServiceConfig{
+		Store:    aisvc.NewStoreAdapter(st),
+		Provider: aiProvider,
+		Log:      logger,
+	})
+	// Wire the enqueue callback AFTER aiSvcImpl is defined.
+	aiSvcImpl.SetEnqueueAnalysis(func(id uuid.UUID) error {
+		return workerPool.Enqueue(&worker.AnalysisJobPayload{
+			AnalysisID: id,
+			Handler: func(ctx context.Context) error {
+				return aiSvcImpl.BuildAnalysis(ctx, id)
+			},
+		})
+	})
+	logger.Info("ai provider", slog.String("provider", aiProvider.Name()))
 
 	var cldSvc cloudinary.Service = cloudinary.StubService{}
 	if cfg.CloudinaryEnabled() {
@@ -325,6 +349,12 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.PATCH("/webhooks/:id", whAdmin.Update)
 	authed.DELETE("/webhooks/:id", whAdmin.Revoke)
 	authed.GET("/webhooks/:id/deliveries", whAdmin.Deliveries)
+
+	// Phase 6 — AI analysis (JWT-authed).
+	aiAdmin := phase6http.NewAIHandler(aiSvcImpl, st, logger)
+	authed.POST("/trades/:id/analyze", aiAdmin.Analyze)
+	authed.GET("/trades/:id/analysis", aiAdmin.GetAnalysis)
+	authed.GET("/ai/usage", aiAdmin.GetUsage)
 	phase5http.RegisterRoutes(e, &phase5http.PublicDeps{
 		Logger:                   logger,
 		AccountsList:             p1.ListAccounts,
@@ -347,4 +377,25 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		slog.Int("rate_burst", cfg.APIPublicRateBurst))
 
 	return syncWk, whWk
+}
+
+// buildAIProvider picks the LLM provider based on cfg.AIProvider.
+// Errors are non-fatal — caller falls back to stub.
+func buildAIProvider(cfg *config.Config, logger *slog.Logger) (aisvc.Provider, error) {
+	switch cfg.AIProvider {
+	case "openai":
+		p, err := aisvc.NewOpenAIProvider(cfg.OpenAIKey, cfg.OpenAIModel, logger)
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
+	case "anthropic":
+		p, err := aisvc.NewAnthropicProvider(cfg.AnthropicKey, cfg.AnthropicModel, logger)
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
+	default:
+		return aisvc.NewStubProvider(), nil
+	}
 }
