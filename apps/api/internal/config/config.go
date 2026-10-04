@@ -72,9 +72,11 @@ type Config struct {
 	SMTPFrom     string `envconfig:"SMTP_FROM" default:"Trading Journal <noreply@trading-journal.local>"`
 
 	// Phase 4 — MetaApi
-	MetaAPIToken     string `envconfig:"METAAPI_TOKEN"`
-	MetaAPIRegion    string `envconfig:"METAAPI_REGION" default:"ap-southeast"`
-	MetaAPIAccountID string `envconfig:"METAAPI_ACCOUNT_ID"`
+	MetaAPIToken         string `envconfig:"METAAPI_TOKEN"`
+	MetaAPIRegion        string `envconfig:"METAAPI_REGION" default:"ap-southeast"`
+	MetaAPIAccountID     string `envconfig:"METAAPI_ACCOUNT_ID"`
+	MetaAPIDeployTimeout int    `envconfig:"METAAPI_DEPLOY_TIMEOUT_SECONDS" default:"10"`
+	MetaAPIHTTPTimeout   int    `envconfig:"METAAPI_HTTP_TIMEOUT_SECONDS" default:"15"`
 
 	// Phase 5 — Public API rate limit (per-key token bucket)
 	APIPublicRatePerMinute int `envconfig:"API_PUBLIC_RATE_PER_MINUTE" default:"60"`

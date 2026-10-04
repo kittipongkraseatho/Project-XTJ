@@ -12,7 +12,7 @@
 
 ## Current phase
 
-**Phase 7 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis + Phase 7 Stripe webhook state machine shipped.**
+**Phase 8 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis + Phase 7 Stripe webhook state machine + Phase 8 Real MetaApi REST handshake shipped.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
@@ -24,6 +24,7 @@
 - Phase 5.2 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` — Outbound webhooks ✅ shipped
 - Phase 6 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` — AI analysis ✅ shipped
 - Phase 7 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase7-design.md` — Stripe webhook state machine ✅ shipped
+- Phase 8 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase8-design.md` — Real MetaApi REST handshake (Connect + FetchDeals + Ping, no SDK) ✅ shipped
 
 **Phase 5.1 in scope (delivered):** Extracted `ratelimit.KeyBucket` interface · renamed Phase 5 in-process impl to `MemoryKeyBucket` · new `RedisKeyBucket` (atomic Lua token-bucket, fail-open on Redis error, TTL-based GC) · `RATE_LIMIT_BACKEND=memory|redis` env-gated router swap · E2E integration test (testcontainers-go Postgres+Redis) covering 10-step API-key lifecycle: register → /me → mint → public-with-key → scope guard → burst → 429 → revoke → reuse-401 (revoked) → list-confirms-revoked. Skipped unless `INTEGRATION_TESTS=on` + Docker available; runs in CI.
 
@@ -33,8 +34,9 @@
 
 **Phase 7 in scope (delivered):** new `webhook_events` table (UNIQUE on `stripe_event_id` for idempotency) · `billing.Service` interface gains `HandleWebhookEvent` · `StripeService.HandleWebhookEvent` handles 5 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed` · upsert-by-external-id on `subscriptions` + `payments` (existing UNIQUE columns reused) · `StubService.HandleWebhookEvent` is a no-op · `/v1/billing/webhook` now applies events after signature verify (200 on idempotent repeat, 200 on unknown type with log, 500 on transient error → Stripe retries).
 
-**Deferred (Phase 8+ — outside initial master plan):**
-- Real MetaApi SDK handshake (provider returns ErrProviderNotConfigured until METAAPI_TOKEN is set)
+**Phase 8 in scope (delivered):** `MetaApiAdapter` rewritten to talk to MetaApi Cloud REST directly (no third-party SDK, stdlib `net/http`). `Connect` does list → find-or-create → poll-DEPLOYED with config-gated timeout (`METAAPI_DEPLOY_TIMEOUT_SECONDS`, default 10s). `FetchDeals` walks history-time-buckets (`/users/current/accounts/:id/history-orders/time-range` per page) then fetches each ticket via `/users/current/accounts/:id/history-orders/:ticket` and maps to canonical `broker.Deal` shape (minor units, UTC, `UUIDv5(ProviderDealID)`). `Ping` checks the account state via `GET /users/current/accounts/:id/account-information` and treats anything other than `DEPLOYED` as not-ready. `Disconnect` is a no-op (REST has no streaming teardown in Phase 8). Auth header is `auth-token: <METAAPI_TOKEN>` per MetaApi REST convention. **No migration needed** — Phase 8 only swaps the `MetaApiAdapter` impl behind the existing `Provider` interface; `broker_connections` schema and SyncService dedup contract are unchanged. 9 unit tests via `httptest.NewServer` cover: finds-existing / create-when-missing / poll-until-deployed / maps-to-canonical / empty-history / ping-OK / ping-NotDeployed / unauthorized / empty-token. `cfg.MetaApiEnabled()` gating is unchanged — set `METAAPI_TOKEN=<real-token>` to flip from Phase 4's stub to the real REST adapter.
+
+**Deferred (Phase 9+ — outside initial master plan):**
 - `write:journal` / `write:webhooks` scopes (admin endpoints are JWT-only)
 - More webhook event types (Phase 5.2: import.completed + trade.created only)
 - Per-key (per-user) rate-limit override
@@ -43,6 +45,7 @@
 - Bulk retry / replay of exhausted deliveries
 - AI: weekly/monthly recap, Q&A chat, streaming responses, image input, prompt caching
 - Stripe Connect (multi-party payments — never planned)
+- MetaApi streaming (REST polling is enough for current deal history; Phase 8 chose no SDK to avoid bloat — streaming subs are a future option)
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -73,7 +76,7 @@
 - **CSP:** `'self' + res.cloudinary.com` for images (Phase 1 added Cloudinary; later phases add more).
 - **PWA:** `@vite-pwa/nuxt`. `autoUpdate`. Icons in `public/icons/`. Manifest aligns with dark palette.
 - **i18n:** English-only in Phase 0–3. Thai copy inline as needed; full i18n in Phase 4.
-- **Broker sync (Phase 2):** `Provider` interface in `internal/integration/broker/`. Mock implementation only — MetaApi SDK deferred. SyncWorker reuses the Phase 1 worker.Pool; SyncService reuses `dealRepo.Insert` for dedup (single source of truth for both manual uploads and broker syncs).
+- **Broker sync (Phase 2 + Phase 8):** `Provider` interface in `internal/integration/broker/`. Phase 2 shipped the mock-only adapter (`MockProvider` for local dev). Phase 8 added the real `MetaApiAdapter` (REST via stdlib `net/http`, no SDK) with `Connect` (list → find-or-create → poll-DEPLOYED), `FetchDeals` (history-orders time-range paginated + per-ticket fetch), and `Ping` (account-state check). Auth header `auth-token: <METAAPI_TOKEN>`. Wire-time gated by `cfg.MetaApiEnabled()` (`METAAPI_TOKEN` non-empty). SyncWorker reuses the Phase 1 worker.Pool; SyncService reuses `dealRepo.Insert` for dedup (single source of truth for both manual uploads and broker syncs).
 - **Plan limits (Phase 3):** `internal/entitlement/limits_by_plan.go` maps `plan.Code` to `Limits{MaxTradingAccounts, MaxBrokerConnections}`. Handlers (`CreateAccount`, `CreateConnection`) call `entitlement.LookupForTenant(ctx, store, tenantID)` and 402 on overflow.
 - **PDF reports (Phase 3):** `pdfreport.Service` interface in `internal/integration/pdfreport/`. Implementation uses `go-pdf/fpdf` (pure Go, MIT, built-in PDF base 14 fonts — no TTF payload bundled).
 - **Billing (Phase 4):** `billing.Service` interface in `internal/integration/billing/`. Stub impl for local dev; Stripe impl via `stripe-go/v9` (real webhook signature verify). Phase 7 added `HandleWebhookEvent` to apply 5 event types (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`) with idempotency via `webhook_events` UNIQUE on `stripe_event_id`. Stub service returns no-op.
@@ -105,6 +108,7 @@
 | Phase 5.2 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` |
 | Phase 6 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` |
 | Phase 7 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase7-design.md` |
+| Phase 8 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase8-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
 | Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2, 0008_phase6, 0009_phase7) |
 | sqlc queries | `apps/api/queries/` |
@@ -164,6 +168,7 @@
 - **Adding a new LLM provider (Phase 6+):** implement `ai.Provider` interface (`Name() string`, `Generate(ctx, GenerateInput) (*GenerateResult, error)`) and add the wiring case in `internal/server/router.go`'s `buildAIProvider`. The interface uses raw `net/http` — no SDK dependency required.
 - **Adding a new AI analysis type (Phase 6+):** add a new method to `Service` and a new worker job struct mirroring `AnalysisJobPayload`. Today only per-trade commentary is supported; weekly recap / Q&A chat would be new job kinds.
 - **Adding a new Stripe webhook event (Phase 7+):** add a new `apply<EventType>` method on `StripeService` + a case in the `HandleWebhookEvent` switch. Use `EventApplyStore` methods that already exist (Phase 7 ships `WebhookEventInsert` + subscription/payment upserts). Unknown event types return `ErrUnknownEvent` — the handler logs + returns 200 so Stripe stops retrying.
+- **Adding a new MetaApi endpoint (Phase 8+):** add a typed helper on `MetaApiAdapter` (mirror `Connect` / `FetchDeals` / `Ping`) using the existing `doJSON(ctx, method, path, body, out)` plumbing, and expose it as a new method on the `Provider` interface. The auth header (`auth-token: <METAAPI_TOKEN>`) and JSON envelope (`{ "error": ..., "data": ..., "metadata": ... }`) are already wired. Keep `SyncService` and `broker_connections` schema untouched — the canonical `Deal` shape is the dedup contract.
 - **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
 - **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**

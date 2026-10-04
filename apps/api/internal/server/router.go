@@ -298,15 +298,22 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.GET("/reports/schedules/:id", p4s.Get)
 	authed.DELETE("/reports/schedules/:id", p4s.Delete)
 
-	// Phase 4 — broker registry: register MetaApi if env-gated.
+	// Phase 8 — broker registry: register MetaApi if env-gated.
+	// Real REST adapter (no SDK) with poll-DEPLOYED + history-tickets
+	// handshake. Timeouts come from config so prod can tune them.
 	if cfg.MetaApiEnabled() {
 		brokerReg.Set(broker_connection.ProviderMetaApi,
 			broker.NewMetaApiAdapter(broker.MetaApiConfig{
-				Token: cfg.MetaAPIToken,
-				Region: cfg.MetaAPIRegion,
-				AccountID: cfg.MetaAPIAccountID,
+				Token:          cfg.MetaAPIToken,
+				Region:         cfg.MetaAPIRegion,
+				AccountID:      cfg.MetaAPIAccountID,
+				DeployTimeout:  time.Duration(cfg.MetaAPIDeployTimeout) * time.Second,
+				HTTPTimeout:    time.Duration(cfg.MetaAPIHTTPTimeout) * time.Second,
 			}))
-		logger.Info("metaapi provider registered")
+		logger.Info("metaapi provider registered",
+			slog.Int("deploy_timeout_s", cfg.MetaAPIDeployTimeout),
+			slog.Int("http_timeout_s", cfg.MetaAPIHTTPTimeout),
+		)
 	}
 
 	// Webhook is public — mount OUTSIDE the authed group.
