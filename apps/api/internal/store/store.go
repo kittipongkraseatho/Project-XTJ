@@ -19,6 +19,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/trading-journal/api/internal/domain/payment"
+	"github.com/trading-journal/api/internal/domain/subscription"
 )
 
 // DBTX is the minimal interface satisfied by both *pgxpool.Pool and pgx.Tx.
@@ -115,6 +118,28 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// ── Phase 7 — EventApplyStore passthrough methods ────────────────────────
+
+// WebhookEventInsert inserts an event idempotency row.
+func (s *Store) WebhookEventInsert(ctx context.Context, stripeEventID, eventType string) (bool, error) {
+	return s.WebhookEvents.Insert(ctx, stripeEventID, eventType)
+}
+
+// SubscriptionUpsertByExternalID delegates to SubscriptionRepo.
+func (s *Store) SubscriptionUpsertByExternalID(ctx context.Context, sub *subscription.Subscription) error {
+	return s.Subscriptions.UpsertByExternalID(ctx, sub)
+}
+
+// SubscriptionGetByExternalID delegates to SubscriptionRepo.
+func (s *Store) SubscriptionGetByExternalID(ctx context.Context, externalID string) (*subscription.Subscription, error) {
+	return s.Subscriptions.GetByExternalID(ctx, externalID)
+}
+
+// PaymentUpsertByExternalInvoice delegates to PaymentRepo.
+func (s *Store) PaymentUpsertByExternalInvoice(ctx context.Context, p *payment.Payment) error {
+	return s.Payments.UpsertByExternalInvoice(ctx, p)
 }
 
 // IsUniqueViolation returns true if err is a Postgres unique-constraint

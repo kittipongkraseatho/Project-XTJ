@@ -84,6 +84,13 @@ func (s *StubService) VerifyWebhookSignature(payload []byte, _ string) (*Webhook
 	return ev, nil
 }
 
+// HandleWebhookEvent is a no-op for the stub billing backend — local dev
+// doesn't apply webhook state because no real subscription exists.
+// Phase 7 added this method to satisfy the Service interface.
+func (s *StubService) HandleWebhookEvent(_ context.Context, _ *WebhookEvent) error {
+	return nil
+}
+
 func asString(v any) string {
 	if s, ok := v.(string); ok {
 		return s

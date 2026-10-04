@@ -252,6 +252,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 			SecretKey:     cfg.StripeSecretKey,
 			WebhookSecret: cfg.StripeWebhookSecret,
 			PriceByPlan:   priceByPlan,
+			Events:        st, // Phase 7 — store implements EventApplyStore
 		})
 		if err != nil {
 			logger.Warn("stripe init failed, falling back to stub", "err", err)

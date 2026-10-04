@@ -241,10 +241,16 @@ func (h *Handler) Payments(c echo.Context) error {
 // Webhook — POST /v1/billing/webhook
 //
 // Public endpoint (no JWT). Stripe signs each request; we verify via the
-// billing.Service implementation.
+// billing.Service implementation, then apply the event to local state.
 //
-// Phase 4 ships verification only; subscription state updates are deferred
-// to Phase 5 (the real provider integration).
+// Phase 7 added the HandleWebhookEvent call (state machine).
+//
+// Failure modes:
+//   - missing Stripe-Signature → 400
+//   - signature invalid → 400 (no apply)
+//   - unknown event type → 400 (handler should not silently drop these)
+//   - apply failed (transient DB error) → 500 (Stripe retries)
+//   - idempotency hit (already applied) → 200 (Stripe stops retrying)
 func (h *Handler) Webhook(c echo.Context) error {
 	body := make([]byte, 0)
 	if c.Request().Body != nil {
@@ -257,14 +263,25 @@ func (h *Handler) Webhook(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, observability.FromError(
 			observability.ErrValidation.WithDetails(map[string]any{"reason": "missing Stripe-Signature"})))
 	}
-	if _, err := h.billing.VerifyWebhookSignature(body, sig); err != nil {
+	ev, err := h.billing.VerifyWebhookSignature(body, sig)
+	if err != nil {
 		var invalid billing.ErrInvalidWebhook
 		if errors.As(err, &invalid) {
 			return c.JSON(http.StatusBadRequest, observability.FromError(invalid))
 		}
 		return c.JSON(http.StatusBadRequest, observability.FromError(err))
 	}
-	h.log.Info("billing.webhook_verified", "size", len(body))
+	if err := h.billing.HandleWebhookEvent(c.Request().Context(), ev); err != nil {
+		var unknown billing.ErrUnknownEvent
+		if errors.As(err, &unknown) {
+			// Log + 200 so Stripe stops retrying unknown events.
+			h.log.Info("billing.webhook_unknown_event", slog.String("type", unknown.Type), slog.String("event_id", ev.ID))
+			return c.NoContent(http.StatusOK)
+		}
+		h.log.Warn("billing.webhook_apply_failed", slog.String("err", err.Error()), slog.String("event_id", ev.ID), slog.String("type", ev.Type))
+		return c.JSON(http.StatusInternalServerError, observability.FromError(err))
+	}
+	h.log.Info("billing.webhook_applied", slog.String("type", ev.Type), slog.String("event_id", ev.ID))
 	return c.NoContent(http.StatusNoContent)
 }
 

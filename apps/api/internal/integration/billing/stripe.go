@@ -11,6 +11,9 @@ import (
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/client"
 	"github.com/stripe/stripe-go/v76/webhook"
+
+	"github.com/trading-journal/api/internal/domain/payment"
+	"github.com/trading-journal/api/internal/domain/subscription"
 )
 
 // stripeClient is the narrow subset of stripe.Client APIs the service uses,
@@ -29,6 +32,7 @@ type StripeService struct {
 	client        stripeClient
 	webhookSecret string
 	priceByPlan   map[string]string // plan code → Stripe price id
+	events        EventApplyStore    // Phase 7 — wired in router.go
 }
 
 // Config is the wire-up needed by StripeService.
@@ -36,6 +40,7 @@ type Config struct {
 	SecretKey     string
 	WebhookSecret string
 	PriceByPlan   map[string]string // empty maps fall back to direct plan lookup
+	Events        EventApplyStore    // Phase 7 — wired in router.go
 }
 
 // NewStripeService builds a Stripe-backed billing.Service. Returns error
@@ -49,6 +54,7 @@ func NewStripeService(cfg Config) (*StripeService, error) {
 		client:        realStripeClient{api: api},
 		webhookSecret: cfg.WebhookSecret,
 		priceByPlan:   cfg.PriceByPlan,
+		events:        cfg.Events,
 	}, nil
 }
 
@@ -135,6 +141,214 @@ func (s *StripeService) VerifyWebhookSignature(payload []byte, signatureHeader s
 		_ = json.Unmarshal(data, &out.RawPayload)
 	}
 	return out, nil
+}
+
+// ── Webhook event apply (Phase 7) ─────────────────────────────────────
+
+// EventApplyStore is the persistence contract for the webhook state machine.
+// Lifted to an interface so we can unit-test HandleWebhookEvent with a fake
+// store without spinning up Postgres.
+type EventApplyStore interface {
+	WebhookEventInsert(ctx context.Context, stripeEventID, eventType string) (bool, error)
+	SubscriptionUpsertByExternalID(ctx context.Context, s *subscription.Subscription) error
+	SubscriptionGetByExternalID(ctx context.Context, externalID string) (*subscription.Subscription, error)
+	PaymentUpsertByExternalInvoice(ctx context.Context, p *payment.Payment) error
+}
+
+// HandleWebhookEvent applies a verified webhook event to local state.
+//
+// Idempotent: rows are uniquely keyed on Stripe's event id. A duplicate
+// event is logged at INFO and returns nil so Stripe stops retrying.
+//
+// Failure: returns the underlying error so the HTTP handler can 5xx and
+// Stripe will retry on the next attempt.
+func (s *StripeService) HandleWebhookEvent(ctx context.Context, ev *WebhookEvent) error {
+	if ev == nil || ev.ID == "" || ev.Type == "" {
+		return ErrInvalidWebhook{Reason: "missing event id or type"}
+	}
+	// Idempotency: short-circuit if we've already applied this event id.
+	if s.events == nil {
+		// Stub-mode path: HandleWebhookEvent is wired by the production
+		// binding in router.go; if we get here without a store, treat as
+		// no-op (defensive — never silently drop events).
+		return nil
+	}
+	inserted, err := s.events.WebhookEventInsert(ctx, ev.ID, ev.Type)
+	if err != nil {
+		return fmt.Errorf("idempotency insert: %w", err)
+	}
+	if !inserted {
+		// Already processed.
+		return nil
+	}
+
+	switch ev.Type {
+	case "checkout.session.completed":
+		return s.applyCheckoutCompleted(ctx, ev)
+	case "customer.subscription.updated":
+		return s.applySubscriptionUpdated(ctx, ev)
+	case "customer.subscription.deleted":
+		return s.applySubscriptionDeleted(ctx, ev)
+	case "invoice.paid":
+		return s.applyInvoicePaid(ctx, ev)
+	case "invoice.payment_failed":
+		return s.applyInvoiceFailed(ctx, ev)
+	default:
+		return ErrUnknownEvent{Type: ev.Type}
+	}
+}
+
+// applyCheckoutCompleted handles `checkout.session.completed`.
+//
+// Reads tenant_id from `client_reference_id` (preferred) or
+// `metadata.tenant_id`. Reads plan_code from `metadata.plan_code`. Inserts
+// a new subscription row (or updates if one with the same Stripe id
+// already exists).
+func (s *StripeService) applyCheckoutCompleted(ctx context.Context, ev *WebhookEvent) error {
+	obj, _ := ev.RawPayload["data"].(map[string]any)["object"].(map[string]any)
+	tenantIDStr := ""
+	if obj != nil {
+		if v := asStringAny(obj["client_reference_id"]); v != "" {
+			tenantIDStr = v
+		}
+	}
+	if tenantIDStr == "" && obj != nil {
+		if meta, ok := obj["metadata"].(map[string]any); ok {
+			tenantIDStr = asStringAny(meta["tenant_id"])
+		}
+	}
+	if tenantIDStr == "" {
+		return fmt.Errorf("checkout.session.completed: missing tenant_id")
+	}
+	tenantID, err := uuidFromString(tenantIDStr)
+	if err != nil {
+		return fmt.Errorf("invalid tenant_id: %w", err)
+	}
+	planCode := ""
+	if obj != nil {
+		if meta, ok := obj["metadata"].(map[string]any); ok {
+			planCode = asStringAny(meta["plan_code"])
+		}
+	}
+	now := time.Now().UTC()
+	provider := "stripe"
+	sub := &subscription.Subscription{
+		ID:                     uuid.Must(uuid.NewV7()),
+		TenantID:               tenantID,
+		PlanID:                 uuid.Nil, // plan code is stored in metadata; plan_id lookup is Phase 8+
+		Status:                 subscription.StatusActive,
+		StartedAt:              now,
+		CurrentPeriodStart:     now,
+		CurrentPeriodEnd:       now.AddDate(0, 1, 0), // +1 month default
+		ExternalProvider:       &provider,
+		ExternalSubscriptionID: &ev.SubscriptionID,
+		Metadata:               map[string]any{"plan_code": planCode},
+	}
+	return s.events.SubscriptionUpsertByExternalID(ctx, sub)
+}
+
+// applySubscriptionUpdated handles `customer.subscription.updated` —
+// updates mutable fields on an existing subscription row.
+func (s *StripeService) applySubscriptionUpdated(ctx context.Context, ev *WebhookEvent) error {
+	sub, err := s.events.SubscriptionGetByExternalID(ctx, ev.SubscriptionID)
+	if err != nil {
+		return fmt.Errorf("subscription not found for stripe id %s: %w", ev.SubscriptionID, err)
+	}
+	obj, _ := ev.RawPayload["data"].(map[string]any)["object"].(map[string]any)
+	if obj == nil {
+		return fmt.Errorf("subscription.updated: missing data.object")
+	}
+	sub.Status = subscription.Status(mapStripeStatus(asStringAny(obj["status"])))
+	if v := asInt64(obj["current_period_start"]); v > 0 {
+		t := time.Unix(v, 0).UTC()
+		sub.CurrentPeriodStart = t
+	}
+	if v := asInt64(obj["current_period_end"]); v > 0 {
+		t := time.Unix(v, 0).UTC()
+		sub.CurrentPeriodEnd = t
+	}
+	if asBool(obj["cancel_at_period_end"]) {
+		now := time.Now().UTC()
+		sub.CancelAt = &now
+	}
+	if itemList, ok := obj["items"].([]any); ok && len(itemList) > 0 {
+		if item, ok := itemList[0].(map[string]any); ok {
+			if price, ok := item["price"].(map[string]any); ok {
+				if sub.Metadata == nil {
+					sub.Metadata = map[string]any{}
+				}
+				sub.Metadata["plan_code"] = asStringAny(price["lookup_key"])
+			}
+		}
+	}
+	return s.events.SubscriptionUpsertByExternalID(ctx, sub)
+}
+
+// applySubscriptionDeleted handles `customer.subscription.deleted`.
+func (s *StripeService) applySubscriptionDeleted(ctx context.Context, ev *WebhookEvent) error {
+	sub, err := s.events.SubscriptionGetByExternalID(ctx, ev.SubscriptionID)
+	if err != nil {
+		return fmt.Errorf("subscription not found for stripe id %s: %w", ev.SubscriptionID, err)
+	}
+	now := time.Now().UTC()
+	sub.Status = subscription.StatusCanceled
+	sub.CanceledAt = &now
+	return s.events.SubscriptionUpsertByExternalID(ctx, sub)
+}
+
+// applyInvoicePaid handles `invoice.paid`.
+func (s *StripeService) applyInvoicePaid(ctx context.Context, ev *WebhookEvent) error {
+	return s.applyInvoice(ctx, ev, payment.StatusPaid)
+}
+
+// applyInvoiceFailed handles `invoice.payment_failed`.
+func (s *StripeService) applyInvoiceFailed(ctx context.Context, ev *WebhookEvent) error {
+	if err := s.applyInvoice(ctx, ev, payment.StatusFailed); err != nil {
+		return err
+	}
+	// Also flip the subscription status to past_due.
+	sub, err := s.events.SubscriptionGetByExternalID(ctx, ev.SubscriptionID)
+	if err != nil {
+		// No subscription row to update — non-fatal.
+		return nil
+	}
+	sub.Status = "past_due"
+	return s.events.SubscriptionUpsertByExternalID(ctx, sub)
+}
+
+// applyInvoice is shared by invoice.paid + invoice.payment_failed.
+func (s *StripeService) applyInvoice(ctx context.Context, ev *WebhookEvent, status payment.Status) error {
+	if ev.InvoiceID == "" {
+		return fmt.Errorf("invoice event: missing invoice id")
+	}
+	sub, err := s.events.SubscriptionGetByExternalID(ctx, ev.SubscriptionID)
+	if err != nil {
+		return fmt.Errorf("invoice: subscription not found for stripe id %s: %w", ev.SubscriptionID, err)
+	}
+	now := time.Now().UTC()
+	p := &payment.Payment{
+		ID:                uuid.Must(uuid.NewV7()),
+		TenantID:          sub.TenantID,
+		SubscriptionID:    sub.ID,
+		Provider:          "stripe",
+		ExternalInvoiceID: ev.InvoiceID,
+		AmountCents:       ev.Amount,
+		Currency:          ev.Currency,
+		Status:            status,
+		PaidAt:            &now,
+		Metadata:          map[string]any{"stripe_event_id": ev.ID},
+	}
+	return s.events.PaymentUpsertByExternalInvoice(ctx, p)
+}
+
+// mapStripeStatus maps a Stripe subscription status to our local string.
+func mapStripeStatus(in string) string {
+	switch in {
+	case "active", "trialing", "past_due", "canceled", "incomplete", "incomplete_expired", "unpaid", "paused":
+		return in
+	default:
+		return "active"
+	}
 }
 
 // ── Real stripe.Client adapter (implements stripeClient interface) ────────

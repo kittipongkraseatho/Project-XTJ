@@ -34,6 +34,14 @@ type Service interface {
 	// the parsed event payload (JSON body). Implementations are responsible
 	// for constant-time comparison and tolerance window checks.
 	VerifyWebhookSignature(payload []byte, signatureHeader string) (*WebhookEvent, error)
+
+	// HandleWebhookEvent applies a verified webhook event to local state.
+	// Phase 7 added this for the Stripe subscription/payment state machine.
+	// Stub implementations return nil (no-op).
+	//
+	// Idempotent: duplicate event ids (per WebhookEvent.ID) are no-ops.
+	// Returns ErrUnknownEvent if the type is not handled.
+	HandleWebhookEvent(ctx context.Context, ev *WebhookEvent) error
 }
 
 // ── DTOs ──────────────────────────────────────────────────────────────
@@ -97,3 +105,9 @@ func (ErrNoSubscription) Error() string { return "no active subscription for ten
 type ErrInvalidWebhook struct{ Reason string }
 
 func (e ErrInvalidWebhook) Error() string { return "invalid webhook: " + e.Reason }
+
+// ErrUnknownEvent is returned by HandleWebhookEvent when the event type
+// is not one we handle (Phase 7 = 5 known types).
+type ErrUnknownEvent struct{ Type string }
+
+func (e ErrUnknownEvent) Error() string { return "unknown billing event: " + e.Type }
