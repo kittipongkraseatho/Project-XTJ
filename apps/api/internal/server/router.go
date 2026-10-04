@@ -173,6 +173,39 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	})
 	logger.Info("ai embedder", slog.String("provider", emb.Name()))
 
+	// Phase 9 — RecapService (§5). Single-account weekly summary.
+	recapSvcImpl := aisvc.NewRecapService(aisvc.RecapConfig{
+		Store:    aisvc.NewRecapStoreAdapter(st),
+		Loader:   recapLoaderAdapter{st: st},
+		Provider: aiProvider,
+		Log:      logger,
+	})
+	recapSvcImpl.SetEnqueueRecap(func(id uuid.UUID) error {
+		return workerPool.Enqueue(&worker.RecapJobPayload{
+			RecapID: id,
+			Handler: func(ctx context.Context) error {
+				return recapSvcImpl.BuildRecap(ctx, id)
+			},
+		})
+	})
+
+	// Phase 9 — ChatService (§6). Multi-turn Q&A with RAG.
+	chatSvcImpl := aisvc.NewChatService(aisvc.ChatConfig{
+		Store:     aisvc.NewChatStoreAdapter(st),
+		Retriever: aisvc.NewChatRAGRetriever(emb, embeddingSearcherAdapter{st: st}, recentTradeListerAdapter{st: st}, 10, logger),
+		Provider:  aiProvider,
+		Log:       logger,
+	})
+	chatSvcImpl.SetEnqueueReply(func(id uuid.UUID) error {
+		return workerPool.Enqueue(&worker.ChatJobPayload{
+			MessageID: id,
+			ThreadID:  uuid.Nil,
+			Handler: func(ctx context.Context) error {
+				return chatSvcImpl.BuildReply(ctx, id)
+			},
+		})
+	})
+
 	// Phase 9 — TradeEmbedJob enqueue hook. The hook is consumed by
 	// RecapService (§5) + ChatService (§6) when they need to embed the
 	// retrieved trade context on demand.
@@ -465,4 +498,60 @@ func (a embedStoreAdapter) Upsert(ctx context.Context, e *ai.TradeEmbedding) err
 
 func (a embedStoreAdapter) AddEmbeddingTokens(ctx context.Context, tenantID uuid.UUID, day time.Time, tokens int64) error {
 	return a.st.AIUsage.AddEmbeddingTokens(ctx, tenantID, day, tokens)
+}
+
+// ── Phase 9 — Recap store + trade loader adapters ────────────────────
+
+// recapLoaderAdapter loads week's trades for an account.
+type recapLoaderAdapter struct{ st *store.Store }
+
+func (a recapLoaderAdapter) LoadWeekTrades(ctx context.Context, tenantID, accountID uuid.UUID, from, to time.Time) ([]*trade.Trade, error) {
+	// ListByTenant paginates with limit/offset; for week-sized fetches 500 is plenty.
+	rows, err := a.st.Trades.ListByTenant(ctx, tenantID, &accountID, 500, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*trade.Trade, 0, len(rows))
+	for _, t := range rows {
+		if t.TenantID != tenantID {
+			continue
+		}
+		if t.OpenTime.Before(from) || !t.OpenTime.Before(to.AddDate(0, 0, 1)) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// embeddingSearcherAdapter bridges store.TradeEmbeddingRepo into aisvc.EmbeddingSearcher.
+type embeddingSearcherAdapter struct{ st *store.Store }
+
+func (a embeddingSearcherAdapter) SearchSimilar(ctx context.Context, tenantID uuid.UUID, queryVec []float32, accountID *uuid.UUID, limit int) ([]aisvc.SimilarTradeID, error) {
+	hits, err := a.st.TradeEmbeddings.SearchSimilar(ctx, tenantID, queryVec, accountID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]aisvc.SimilarTradeID, len(hits))
+	for i, h := range hits {
+		out[i] = aisvc.SimilarTradeID{TradeID: h.TradeID, Distance: h.Distance}
+	}
+	return out, nil
+}
+
+// recentTradeListerAdapter bridges TradeRepo into aisvc.RecentTradeLister (stub fallback).
+type recentTradeListerAdapter struct{ st *store.Store }
+
+func (a recentTradeListerAdapter) ListRecentByAccount(ctx context.Context, tenantID, accountID uuid.UUID, limit int) ([]uuid.UUID, error) {
+	rows, err := a.st.Trades.ListByTenant(ctx, tenantID, &accountID, limit, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uuid.UUID, 0, len(rows))
+	for _, t := range rows {
+		if t.TenantID == tenantID {
+			out = append(out, t.ID)
+		}
+	}
+	return out, nil
 }
