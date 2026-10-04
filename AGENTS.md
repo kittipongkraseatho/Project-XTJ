@@ -12,7 +12,7 @@
 
 ## Current phase
 
-**Phase 5.2 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks shipped.**
+**Phase 6 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis shipped.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
@@ -22,13 +22,15 @@
 - Phase 5 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` — Public API + Scoped API Keys ✅ shipped
 - Phase 5.1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` — Redis rate limit + Integration test ✅ shipped
 - Phase 5.2 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` — Outbound webhooks ✅ shipped
+- Phase 6 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` — AI analysis ✅ shipped
 
 **Phase 5.1 in scope (delivered):** Extracted `ratelimit.KeyBucket` interface · renamed Phase 5 in-process impl to `MemoryKeyBucket` · new `RedisKeyBucket` (atomic Lua token-bucket, fail-open on Redis error, TTL-based GC) · `RATE_LIMIT_BACKEND=memory|redis` env-gated router swap · E2E integration test (testcontainers-go Postgres+Redis) covering 10-step API-key lifecycle: register → /me → mint → public-with-key → scope guard → burst → 429 → revoke → reuse-401 (revoked) → list-confirms-revoked. Skipped unless `INTEGRATION_TESTS=on` + Docker available; runs in CI.
 
 **Phase 5.2 in scope (delivered):** 2 new tables (`webhook_subscriptions` + `webhook_deliveries`) · `webhook.Service` interface + `ServiceImpl` (HMAC-SHA256 signing with timestamp anti-replay; plaintext secret at rest, shown ONCE) · `webhook.EventType` (2 events: `import.completed`, `trade.created`) · `WebhookWorker` (30s poll, single-flight, retry classification: 408/429/5xx → retry, other 4xx → permanent fail; exponential backoff 1m/5m/30m/2h/12h, max 5 attempts) · Emitters added to `ImportService.RunPipeline` (one `import.completed` per job + one `trade.created` per trade) · 6 admin endpoints under `/v1/webhooks` (JWT-authed: list / get / create / patch / delete / deliveries drill) · FE `/webhooks` page (table + create dialog + one-shot plaintext display + revoke + click-to-drill deliveries) · `useWebhooks` composable + nav link + footer label → Phase 5.2.
 
-**Deferred (Phase 6+ — outside initial master plan):**
-- AI analysis (LLM trade commentary)
+**Phase 6 in scope (delivered):** 2 new tables (`trade_analyses` + `ai_usage_daily`) · `ai.Provider` interface with 3 impls (Stub / OpenAI / Anthropic — stdlib `net/http`, no SDK bloat) · `ai.Service` with idempotent prompt-hash cache (30min TTL) + per-tenant daily budget (free: 5/day, pro: 50/day, hard cap: 100/day) · async generation via Phase 1's `worker.Pool` (kick returns 202; FE polls) · 3 JWT-authed endpoints (`POST /v1/trades/:id/analyze`, `GET /v1/trades/:id/analysis`, `GET /v1/ai/usage`) · FE: AI Analysis panel on `/trades/[id]` (Generate button + polling + budget indicator + provider badge).
+
+**Deferred (Phase 7+ — outside initial master plan):**
 - Real MetaApi SDK handshake (provider returns ErrProviderNotConfigured until METAAPI_TOKEN is set)
 - Stripe webhook → subscription state-machine application (verification-only)
 - `write:journal` / `write:webhooks` scopes (admin endpoints are JWT-only)
@@ -37,6 +39,7 @@
 - Inbound webhooks (Phase 5.2 is outbound only)
 - Webhook event filtering (e.g. "only emit for account X")
 - Bulk retry / replay of exhausted deliveries
+- AI: weekly/monthly recap, Q&A chat, streaming responses, image input, prompt caching
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -75,6 +78,7 @@
 - **Scheduling (Phase 4):** pure cron helper `ComputeNextSend` + `ScheduleWorker` (60s poll, in-process single-flight). New `reportbuild` package shares trade-walking logic between HTTP `/v1/reports/pdf` and the worker.
 - **API keys (Phase 5):** `apikey.Service` interface in `internal/integration/apikey/`. Implementation uses `golang.org/x/crypto/bcrypt` (cost=10). Key format `trj_pk_<8-char-prefix>.<24-byte-secret>` (URL-safe base64); the `prefix` is the public lookup key, the `secret` is bcrypt-hashed and never recoverable. Echo middleware sets tenant_id on both request ctx (`tenant.WithTenantID`) and echo ctx (`c.Set("tenant_id")`) — the former for service/store paths, the latter for existing phase1/4 handlers. Per-key rate limit via `internal/ratelimit/KeyBucket` (in-process `golang.org/x/time/rate.Limiter` map; Phase 5.1 swaps for Redis). Public API endpoints under `/v1/public/*` are thin wrappers around existing phase1/4 handlers; admin endpoints under `/v1/api-keys` are JWT-authed for management (list/create/get/update/revoke).
 - **Rate limit (Phase 5.1):** `ratelimit.KeyBucket` interface with two implementations. `MemoryKeyBucket` (in-process `sync.Mutex` + `rate.Limiter` per key) — default for dev. `RedisKeyBucket` (atomic Lua token-bucket in Redis; fail-open on Redis error with `slog.Warn`; TTL-based cleanup) — set via `RATE_LIMIT_BACKEND=redis` for prod multi-instance. Both return `Decision{Allowed, Remaining, Reset}`. E2E integration test in `internal/integration/apikey_e2e/` (testcontainers-go Postgres+Redis) exercises the full 10-step API-key flow; gated by `INTEGRATION_TESTS=on`.
+- **AI analysis (Phase 6):** `ai.Provider` interface with 3 implementations (`StubProvider`, `OpenAIProvider`, `AnthropicProvider`) — all using stdlib `net/http` (no SDK bloat). `ai.Service` orchestrates prompt-hash idempotency, daily budget (free: 5/day, pro: 50/day, hard cap: 100/day), and async generation via Phase 1's `worker.Pool`. Selection: `AI_PROVIDER=stub|openai|anthropic` env var. Defaults to stub. Per-tenant usage tracked in `ai_usage_daily` table.
 - **Tests:** Vitest + `@vue/test-utils` for unit, Playwright for E2E.
 
 ### Cross-stack
@@ -96,8 +100,9 @@
 | Phase 5 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5-design.md` |
 | Phase 5.1 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` |
 | Phase 5.2 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` |
+| Phase 6 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
-| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2) |
+| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2, 0008_phase6) |
 | sqlc queries | `apps/api/queries/` |
 | Domain entities | `apps/api/internal/domain/<entity>/` |
 | HTTP handlers | `apps/api/internal/httpapi/` |
@@ -117,6 +122,7 @@
 | API keys | `apps/api/internal/integration/apikey/` |
 | Rate limit | `apps/api/internal/ratelimit/` |
 | Webhooks (outbound) | `apps/api/internal/integration/webhook/` + `apps/api/internal/worker/webhook_worker.go` |
+| AI analysis | `apps/api/internal/integration/ai/` + `apps/api/internal/worker/analysis_job.go` |
 | Phase 1 handlers | `apps/api/internal/httpapi/phase1/` |
 | Phase 2 handlers | `apps/api/internal/httpapi/phase2/` |
 | Phase 3 handlers | `apps/api/internal/httpapi/phase3/` |
@@ -129,6 +135,7 @@
 | Phase 4 store repos | `apps/api/internal/store/phase4_repos.go` |
 | Phase 5 store repos | `apps/api/internal/store/phase5_repos.go` |
 | Phase 5.2 store repos | `apps/api/internal/store/phase7_repos.go` |
+| Phase 6 store repos | `apps/api/internal/store/phase8_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
@@ -149,6 +156,8 @@
 - **Adding a new public endpoint (Phase 5+):** pick the right group in `internal/httpapi/phase5/public_handler.go` (read:accounts / read:trades / read:analytics / read:payments), bind the handler function in `PublicDeps`, and wire it in `internal/server/router.go`. Keep the handler thin — delegate to the existing phase1/4 implementation.
 - **Adding a new rate limit backend (Phase 5.1+):** implement `ratelimit.KeyBucket` interface (`Allow(uuid) Decision`, `Close() error`) and add the wiring switch in `internal/server/router.go`. The middleware only inspects `Decision.Allowed`. Don't bypass the interface for one-off buckets — that breaks the prod/dev swap.
 - **Adding a new webhook event type (Phase 5.2+):** add a constant in `internal/domain/webhook/webhook.go` (EventType + append to AllEventTypes), then call `webhookSvc.Emit(ctx, EmitInput{EventType: <new>, Data: ...})` from wherever the event happens. The worker picks the row up on the next tick. Update the FE `useWebhooks.ts` `ALL_WEBHOOK_EVENTS` and the `/webhooks` page checkbox list.
+- **Adding a new LLM provider (Phase 6+):** implement `ai.Provider` interface (`Name() string`, `Generate(ctx, GenerateInput) (*GenerateResult, error)`) and add the wiring case in `internal/server/router.go`'s `buildAIProvider`. The interface uses raw `net/http` — no SDK dependency required.
+- **Adding a new AI analysis type (Phase 6+):** add a new method to `Service` and a new worker job struct mirroring `AnalysisJobPayload`. Today only per-trade commentary is supported; weekly recap / Q&A chat would be new job kinds.
 - **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
 - **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
