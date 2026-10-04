@@ -14,6 +14,8 @@ const navItems = computed(() => {
     { title: 'Imports', to: '/imports' },
     { title: 'Analytics', to: '/analytics' },
     { title: 'Accounts', to: '/accounts' },
+    { title: 'Recaps', to: '/recaps' },
+    { title: 'Chat', to: '/chat' },
     { title: 'API Keys', to: '/api-keys' },
     { title: 'Webhooks', to: '/webhooks' },
   ]
@@ -72,7 +74,7 @@ async function onLogout() {
   <v-footer color="surface" class="text-caption text-medium-emphasis py-3" border>
     <span>© 2026 Trading Journal</span>
     <v-spacer />
-    <span class="text-disabled">Phase 8</span>
+    <span class="text-disabled">Phase 9</span>
   </v-footer>
 
   <PwaUpdateToast />
