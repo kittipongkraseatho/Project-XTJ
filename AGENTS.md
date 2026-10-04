@@ -12,7 +12,7 @@
 
 ## Current phase
 
-**Phase 8 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis + Phase 7 Stripe webhook state machine + Phase 8 Real MetaApi REST handshake shipped.**
+**Phase 9 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis + Phase 7 Stripe webhook state machine + Phase 8 Real MetaApi REST handshake + Phase 9 AI Expansion (weekly recap + Q&A chat with RAG) shipped.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
@@ -25,6 +25,7 @@
 - Phase 6 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` — AI analysis ✅ shipped
 - Phase 7 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase7-design.md` — Stripe webhook state machine ✅ shipped
 - Phase 8 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase8-design.md` — Real MetaApi REST handshake (Connect + FetchDeals + Ping, no SDK) ✅ shipped
+- Phase 9 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase9-design.md` — AI Expansion (weekly recap + Q&A chat with RAG) ✅ shipped
 
 **Phase 5.1 in scope (delivered):** Extracted `ratelimit.KeyBucket` interface · renamed Phase 5 in-process impl to `MemoryKeyBucket` · new `RedisKeyBucket` (atomic Lua token-bucket, fail-open on Redis error, TTL-based GC) · `RATE_LIMIT_BACKEND=memory|redis` env-gated router swap · E2E integration test (testcontainers-go Postgres+Redis) covering 10-step API-key lifecycle: register → /me → mint → public-with-key → scope guard → burst → 429 → revoke → reuse-401 (revoked) → list-confirms-revoked. Skipped unless `INTEGRATION_TESTS=on` + Docker available; runs in CI.
 
@@ -36,14 +37,18 @@
 
 **Phase 8 in scope (delivered):** `MetaApiAdapter` rewritten to talk to MetaApi Cloud REST directly (no third-party SDK, stdlib `net/http`). `Connect` does list → find-or-create → poll-DEPLOYED with config-gated timeout (`METAAPI_DEPLOY_TIMEOUT_SECONDS`, default 10s). `FetchDeals` walks history-time-buckets (`/users/current/accounts/:id/history-orders/time-range` per page) then fetches each ticket via `/users/current/accounts/:id/history-orders/:ticket` and maps to canonical `broker.Deal` shape (minor units, UTC, `UUIDv5(ProviderDealID)`). `Ping` checks the account state via `GET /users/current/accounts/:id/account-information` and treats anything other than `DEPLOYED` as not-ready. `Disconnect` is a no-op (REST has no streaming teardown in Phase 8). Auth header is `auth-token: <METAAPI_TOKEN>` per MetaApi REST convention. **No migration needed** — Phase 8 only swaps the `MetaApiAdapter` impl behind the existing `Provider` interface; `broker_connections` schema and SyncService dedup contract are unchanged. 9 unit tests via `httptest.NewServer` cover: finds-existing / create-when-missing / poll-until-deployed / maps-to-canonical / empty-history / ping-OK / ping-NotDeployed / unauthorized / empty-token. `cfg.MetaApiEnabled()` gating is unchanged — set `METAAPI_TOKEN=<real-token>` to flip from Phase 4's stub to the real REST adapter.
 
-**Deferred (Phase 9+ — outside initial master plan):**
+**Phase 9 in scope (delivered):** `ai.Embedder` interface (Stub + OpenAI text-embedding-3-small via stdlib `net/http`, no SDK). 4 new tables via migration `0010_phase9` (`trade_embeddings` with pgvector `vector(1536)`, `ai_recaps`, `ai_chat_threads`, `ai_chat_messages`) + 3 new columns on `ai_usage_daily` (`recap_requests`, `chat_requests`, `embedding_tokens`). **RecapService**: single-account weekly summary, button-triggered, async via Phase 1's worker.Pool. SHA256 prompt-hash idempotent cache (30min TTL); budget-deducted from shared daily budget (free=5, pro=50, hard cap=100 across all surfaces). **ChatService**: multi-turn Q&A with RAG — embed user message, pgvector cosine search top-10 relevant trades, feed into LLM prompt with last-50 thread history, async worker handler. Threads find-or-create by `(user, account)` partial unique; trim to last 50 messages per thread. Shared budget with Phase 6 per-trade analyses (one cap across per-trade + recaps + chat). 9 HTTP endpoints under `/v1/accounts/:id/recaps`, `/v1/recaps/:id`, `/v1/chat/threads`, `/v1/chat/threads/:id/messages`. FE: `/recaps` page (account + week picker + polling + budget indicator), `/chat` page (sidebar threads + message stream + composer + account-scope RAG). E2E test in `internal/integration/ai/phase9_e2e_test.go` (testcontainers-go pgvector + Redis, gated by `INTEGRATION_TESTS=on`). **CI must use `pgvector/pgvector:pg16` image** — managed Postgres needs `CREATE EXTENSION IF NOT EXISTS vector;` before applying migration.
+
+**Deferred (Phase 10+ — outside initial master plan):**
 - `write:journal` / `write:webhooks` scopes (admin endpoints are JWT-only)
 - More webhook event types (Phase 5.2: import.completed + trade.created only)
 - Per-key (per-user) rate-limit override
 - Inbound webhooks (Phase 5.2 is outbound only)
 - Webhook event filtering (e.g. "only emit for account X")
 - Bulk retry / replay of exhausted deliveries
-- AI: weekly/monthly recap, Q&A chat, streaming responses, image input, prompt caching
+- AI: streaming responses, function-calling agents, image input (trade screenshots), prompt caching, multi-language analysis, voice input, chat thread export
+- Recap auto-email, multi-account rollup, period comparison (this week vs last week)
+- Local embedding model (Phase 9 ships OpenAI + Stub only)
 - Stripe Connect (multi-party payments — never planned)
 - MetaApi streaming (REST polling is enough for current deal history; Phase 8 chose no SDK to avoid bloat — streaming subs are a future option)
 
@@ -85,6 +90,7 @@
 - **API keys (Phase 5):** `apikey.Service` interface in `internal/integration/apikey/`. Implementation uses `golang.org/x/crypto/bcrypt` (cost=10). Key format `trj_pk_<8-char-prefix>.<24-byte-secret>` (URL-safe base64); the `prefix` is the public lookup key, the `secret` is bcrypt-hashed and never recoverable. Echo middleware sets tenant_id on both request ctx (`tenant.WithTenantID`) and echo ctx (`c.Set("tenant_id")`) — the former for service/store paths, the latter for existing phase1/4 handlers. Per-key rate limit via `internal/ratelimit/KeyBucket` (in-process `golang.org/x/time/rate.Limiter` map; Phase 5.1 swaps for Redis). Public API endpoints under `/v1/public/*` are thin wrappers around existing phase1/4 handlers; admin endpoints under `/v1/api-keys` are JWT-authed for management (list/create/get/update/revoke).
 - **Rate limit (Phase 5.1):** `ratelimit.KeyBucket` interface with two implementations. `MemoryKeyBucket` (in-process `sync.Mutex` + `rate.Limiter` per key) — default for dev. `RedisKeyBucket` (atomic Lua token-bucket in Redis; fail-open on Redis error with `slog.Warn`; TTL-based cleanup) — set via `RATE_LIMIT_BACKEND=redis` for prod multi-instance. Both return `Decision{Allowed, Remaining, Reset}`. E2E integration test in `internal/integration/apikey_e2e/` (testcontainers-go Postgres+Redis) exercises the full 10-step API-key flow; gated by `INTEGRATION_TESTS=on`.
 - **AI analysis (Phase 6):** `ai.Provider` interface with 3 implementations (`StubProvider`, `OpenAIProvider`, `AnthropicProvider`) — all using stdlib `net/http` (no SDK bloat). `ai.Service` orchestrates prompt-hash idempotency, daily budget (free: 5/day, pro: 50/day, hard cap: 100/day), and async generation via Phase 1's `worker.Pool`. Selection: `AI_PROVIDER=stub|openai|anthropic` env var. Defaults to stub. Per-tenant usage tracked in `ai_usage_daily` table.
+- **AI Expansion (Phase 9):** builds on Phase 6 with `ai.Embedder` interface (Stub + OpenAI text-embedding-3-small via stdlib `net/http`) for RAG. New `ai.RecapService` (single-account weekly summary) + `ai.ChatService` (multi-turn Q&A with RAG via pgvector cosine search over `trade_embeddings`). Shared daily budget — all 3 AI surfaces (per-trade + recap + chat) draw from the same `ai_usage_daily` cap (free=5, pro=50, hard=100). 3 new worker jobs (`TradeEmbedJobPayload`, `RecapJobPayload`, `ChatJobPayload`) wired to the same Phase 1 `worker.Pool`. Selection: `EMBED_PROVIDER=stub|openai` env var; OpenAI auto-replaces Stub when `OPENAI_API_KEY` is set. Stub fallback uses "last 10 trades for the account" (deterministic SQL filter). pgvector extension required in DB — CI uses `pgvector/pgvector:pg16` image.
 - **Tests:** Vitest + `@vue/test-utils` for unit, Playwright for E2E.
 
 ### Cross-stack
@@ -109,8 +115,9 @@
 | Phase 6 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` |
 | Phase 7 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase7-design.md` |
 | Phase 8 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase8-design.md` |
+| Phase 9 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase9-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
-| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2, 0008_phase6, 0009_phase7) |
+| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2, 0008_phase6, 0009_phase7, 0010_phase9) |
 | sqlc queries | `apps/api/queries/` |
 | Domain entities | `apps/api/internal/domain/<entity>/` |
 | HTTP handlers | `apps/api/internal/httpapi/` |
@@ -137,6 +144,7 @@
 | Phase 4 handlers | `apps/api/internal/httpapi/phase4/` |
 | Phase 5 handlers | `apps/api/internal/httpapi/phase5/` |
 | Phase 6 (webhooks) handlers | `apps/api/internal/httpapi/phase6/` |
+| Phase 9 (recap + chat) handlers | `apps/api/internal/httpapi/phase9/` |
 | Phase 1 store repos | `apps/api/internal/store/phase1_repos.go` |
 | Phase 2 store repos | `apps/api/internal/store/phase2_repos.go` |
 | Phase 3 store repos | `apps/api/internal/store/phase3_repos.go` |
@@ -145,6 +153,7 @@
 | Phase 5.2 store repos | `apps/api/internal/store/phase7_repos.go` |
 | Phase 6 store repos | `apps/api/internal/store/phase8_repos.go` |
 | Phase 7 store repos | `apps/api/internal/store/phase9_repos.go` |
+| Phase 9 store repos | `apps/api/internal/store/phase10_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
@@ -169,6 +178,8 @@
 - **Adding a new AI analysis type (Phase 6+):** add a new method to `Service` and a new worker job struct mirroring `AnalysisJobPayload`. Today only per-trade commentary is supported; weekly recap / Q&A chat would be new job kinds.
 - **Adding a new Stripe webhook event (Phase 7+):** add a new `apply<EventType>` method on `StripeService` + a case in the `HandleWebhookEvent` switch. Use `EventApplyStore` methods that already exist (Phase 7 ships `WebhookEventInsert` + subscription/payment upserts). Unknown event types return `ErrUnknownEvent` — the handler logs + returns 200 so Stripe stops retrying.
 - **Adding a new MetaApi endpoint (Phase 8+):** add a typed helper on `MetaApiAdapter` (mirror `Connect` / `FetchDeals` / `Ping`) using the existing `doJSON(ctx, method, path, body, out)` plumbing, and expose it as a new method on the `Provider` interface. The auth header (`auth-token: <METAAPI_TOKEN>`) and JSON envelope (`{ "error": ..., "data": ..., "metadata": ... }`) are already wired. Keep `SyncService` and `broker_connections` schema untouched — the canonical `Deal` shape is the dedup contract.
+- **Adding a new embedder (Phase 9+):** implement `ai.Embedder` interface (`Name()`, `Dimensions()`, `Embed(ctx, []string) ([][]float32, error)`) and add a switch in `internal/server/router.go` near the existing Stub/OpenAI wiring. Vector output must be L2-normalized so pgvector's `<=>` cosine distance is meaningful. Stub fallback (`r.embedder.Name() == "stub"`) is auto-handled by `ChatRAGRetriever` via the `RecentTradeLister` path.
+- **Adding a new chat mode (Phase 9+):** `ChatService` already handles per-thread RAG. For a new mode (e.g. "weekly Q&A with summary context"), add a new method on `ChatService` that builds a different prompt (mirror `BuildReply`). The shared budget + thread model + worker pipeline stay the same. Add a new endpoint in `internal/httpapi/phase9/handler.go` + register in `RegisterRoutes`.
 - **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
 - **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
