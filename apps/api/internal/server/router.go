@@ -21,6 +21,7 @@ import (
 	phase4http "github.com/trading-journal/api/internal/httpapi/phase4"
 	phase5http "github.com/trading-journal/api/internal/httpapi/phase5"
 	phase6http "github.com/trading-journal/api/internal/httpapi/phase6"
+	phase9http "github.com/trading-journal/api/internal/httpapi/phase9"
 	"github.com/trading-journal/api/internal/domain/ai"
 	"github.com/trading-journal/api/internal/domain/broker_connection"
 	"github.com/trading-journal/api/internal/domain/trade"
@@ -425,6 +426,10 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	authed.POST("/trades/:id/analyze", aiAdmin.Analyze)
 	authed.GET("/trades/:id/analysis", aiAdmin.GetAnalysis)
 	authed.GET("/ai/usage", aiAdmin.GetUsage)
+
+	// Phase 9 — AI Expansion (weekly recap + Q&A chat).
+	phase9Admin := phase9http.New(recapSvcImpl, chatSvcImpl, st, logger)
+	phase9Admin.RegisterRoutes(authed)
 	phase5http.RegisterRoutes(e, &phase5http.PublicDeps{
 		Logger:                   logger,
 		AccountsList:             p1.ListAccounts,
