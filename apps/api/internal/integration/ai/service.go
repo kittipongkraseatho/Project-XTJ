@@ -113,11 +113,12 @@ type AnalysisStore interface {
 
 // ServiceImpl is the production implementation.
 type ServiceImpl struct {
-	store     AnalysisStore
-	provider  Provider
-	promptFn  PromptBuilder
-	maxTokens int
-	log       *slog.Logger
+	store           AnalysisStore
+	provider        Provider
+	promptFn        PromptBuilder
+	maxTokens       int
+	enqueueAnalysis func(analysisID uuid.UUID) error
+	log             *slog.Logger
 }
 
 // Store exposes the underlying AnalysisStore (used by tests that need
@@ -126,11 +127,17 @@ func (s *ServiceImpl) Store() AnalysisStore { return s.store }
 
 // ServiceConfig configures the service.
 type ServiceConfig struct {
-	Store     AnalysisStore
-	Provider  Provider
-	PromptFn  PromptBuilder // optional; default uses DefaultPromptBuilder
-	MaxTokens int           // default 600
+	Store    AnalysisStore
+	Provider Provider
+	PromptFn PromptBuilder // optional; default uses DefaultPromptBuilder
+	MaxTokens int          // default 600
 	Log       *slog.Logger
+
+	// EnqueueAnalysis is invoked after the pending row is inserted so
+	// the worker can pick it up. If nil, the service returns the
+	// pending row synchronously and the caller must drive
+	// BuildAnalysis themselves (useful in tests).
+	EnqueueAnalysis func(analysisID uuid.UUID) error
 }
 
 // NewServiceImpl builds the service.
@@ -145,11 +152,12 @@ func NewServiceImpl(cfg ServiceConfig) *ServiceImpl {
 		cfg.Log = slog.Default()
 	}
 	return &ServiceImpl{
-		store:     cfg.Store,
-		provider:  cfg.Provider,
-		promptFn:  cfg.PromptFn,
-		maxTokens: cfg.MaxTokens,
-		log:       cfg.Log,
+		store:          cfg.Store,
+		provider:       cfg.Provider,
+		promptFn:       cfg.PromptFn,
+		maxTokens:      cfg.MaxTokens,
+		enqueueAnalysis: cfg.EnqueueAnalysis,
+		log:            cfg.Log,
 	}
 }
 
@@ -212,6 +220,17 @@ func (s *ServiceImpl) Analyze(ctx context.Context, in AnalyzeInput) (*ai.Analysi
 		s.log.Warn("increment ai usage failed",
 			slog.String("err", err.Error()),
 			slog.String("tenant_id", in.TenantID.String()))
+	}
+
+	// 8. Enqueue the worker job (best-effort — caller can re-trigger if
+	// the worker is down by re-running Analyze; the idempotency layer
+	// above will short-circuit).
+	if s.enqueueAnalysis != nil {
+		if err := s.enqueueAnalysis(a.ID); err != nil {
+			s.log.Warn("enqueue analysis failed",
+				slog.String("err", err.Error()),
+				slog.String("analysis_id", a.ID.String()))
+		}
 	}
 
 	return a, nil
