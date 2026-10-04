@@ -12,7 +12,7 @@
 
 ## Current phase
 
-**Phase 6 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis shipped.**
+**Phase 7 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis + Phase 7 Stripe webhook state machine shipped.**
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped
@@ -23,6 +23,7 @@
 - Phase 5.1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` — Redis rate limit + Integration test ✅ shipped
 - Phase 5.2 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` — Outbound webhooks ✅ shipped
 - Phase 6 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` — AI analysis ✅ shipped
+- Phase 7 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase7-design.md` — Stripe webhook state machine ✅ shipped
 
 **Phase 5.1 in scope (delivered):** Extracted `ratelimit.KeyBucket` interface · renamed Phase 5 in-process impl to `MemoryKeyBucket` · new `RedisKeyBucket` (atomic Lua token-bucket, fail-open on Redis error, TTL-based GC) · `RATE_LIMIT_BACKEND=memory|redis` env-gated router swap · E2E integration test (testcontainers-go Postgres+Redis) covering 10-step API-key lifecycle: register → /me → mint → public-with-key → scope guard → burst → 429 → revoke → reuse-401 (revoked) → list-confirms-revoked. Skipped unless `INTEGRATION_TESTS=on` + Docker available; runs in CI.
 
@@ -30,9 +31,10 @@
 
 **Phase 6 in scope (delivered):** 2 new tables (`trade_analyses` + `ai_usage_daily`) · `ai.Provider` interface with 3 impls (Stub / OpenAI / Anthropic — stdlib `net/http`, no SDK bloat) · `ai.Service` with idempotent prompt-hash cache (30min TTL) + per-tenant daily budget (free: 5/day, pro: 50/day, hard cap: 100/day) · async generation via Phase 1's `worker.Pool` (kick returns 202; FE polls) · 3 JWT-authed endpoints (`POST /v1/trades/:id/analyze`, `GET /v1/trades/:id/analysis`, `GET /v1/ai/usage`) · FE: AI Analysis panel on `/trades/[id]` (Generate button + polling + budget indicator + provider badge).
 
-**Deferred (Phase 7+ — outside initial master plan):**
+**Phase 7 in scope (delivered):** new `webhook_events` table (UNIQUE on `stripe_event_id` for idempotency) · `billing.Service` interface gains `HandleWebhookEvent` · `StripeService.HandleWebhookEvent` handles 5 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed` · upsert-by-external-id on `subscriptions` + `payments` (existing UNIQUE columns reused) · `StubService.HandleWebhookEvent` is a no-op · `/v1/billing/webhook` now applies events after signature verify (200 on idempotent repeat, 200 on unknown type with log, 500 on transient error → Stripe retries).
+
+**Deferred (Phase 8+ — outside initial master plan):**
 - Real MetaApi SDK handshake (provider returns ErrProviderNotConfigured until METAAPI_TOKEN is set)
-- Stripe webhook → subscription state-machine application (verification-only)
 - `write:journal` / `write:webhooks` scopes (admin endpoints are JWT-only)
 - More webhook event types (Phase 5.2: import.completed + trade.created only)
 - Per-key (per-user) rate-limit override
@@ -40,6 +42,7 @@
 - Webhook event filtering (e.g. "only emit for account X")
 - Bulk retry / replay of exhausted deliveries
 - AI: weekly/monthly recap, Q&A chat, streaming responses, image input, prompt caching
+- Stripe Connect (multi-party payments — never planned)
 
 > If a task crosses into a deferred area, **stop** and surface it. Don't expand scope.
 
@@ -73,7 +76,7 @@
 - **Broker sync (Phase 2):** `Provider` interface in `internal/integration/broker/`. Mock implementation only — MetaApi SDK deferred. SyncWorker reuses the Phase 1 worker.Pool; SyncService reuses `dealRepo.Insert` for dedup (single source of truth for both manual uploads and broker syncs).
 - **Plan limits (Phase 3):** `internal/entitlement/limits_by_plan.go` maps `plan.Code` to `Limits{MaxTradingAccounts, MaxBrokerConnections}`. Handlers (`CreateAccount`, `CreateConnection`) call `entitlement.LookupForTenant(ctx, store, tenantID)` and 402 on overflow.
 - **PDF reports (Phase 3):** `pdfreport.Service` interface in `internal/integration/pdfreport/`. Implementation uses `go-pdf/fpdf` (pure Go, MIT, built-in PDF base 14 fonts — no TTF payload bundled).
-- **Billing (Phase 4):** `billing.Service` interface in `internal/integration/billing/`. Stub impl for local dev; Stripe impl via `stripe-go/v9` (real webhook signature verify, Phase 5 future work to fully wire checkout session-state application).
+- **Billing (Phase 4):** `billing.Service` interface in `internal/integration/billing/`. Stub impl for local dev; Stripe impl via `stripe-go/v9` (real webhook signature verify). Phase 7 added `HandleWebhookEvent` to apply 5 event types (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`) with idempotency via `webhook_events` UNIQUE on `stripe_event_id`. Stub service returns no-op.
 - **Mailer (Phase 4):** `mailer.Service` interface in `internal/integration/mailer/`. Stub writes `.eml` files to a temp dir; production uses `SMTPMailer` via net/smtp.
 - **Scheduling (Phase 4):** pure cron helper `ComputeNextSend` + `ScheduleWorker` (60s poll, in-process single-flight). New `reportbuild` package shares trade-walking logic between HTTP `/v1/reports/pdf` and the worker.
 - **API keys (Phase 5):** `apikey.Service` interface in `internal/integration/apikey/`. Implementation uses `golang.org/x/crypto/bcrypt` (cost=10). Key format `trj_pk_<8-char-prefix>.<24-byte-secret>` (URL-safe base64); the `prefix` is the public lookup key, the `secret` is bcrypt-hashed and never recoverable. Echo middleware sets tenant_id on both request ctx (`tenant.WithTenantID`) and echo ctx (`c.Set("tenant_id")`) — the former for service/store paths, the latter for existing phase1/4 handlers. Per-key rate limit via `internal/ratelimit/KeyBucket` (in-process `golang.org/x/time/rate.Limiter` map; Phase 5.1 swaps for Redis). Public API endpoints under `/v1/public/*` are thin wrappers around existing phase1/4 handlers; admin endpoints under `/v1/api-keys` are JWT-authed for management (list/create/get/update/revoke).
@@ -101,8 +104,9 @@
 | Phase 5.1 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_1-design.md` |
 | Phase 5.2 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase5_2-design.md` |
 | Phase 6 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase6-design.md` |
+| Phase 7 design | `docs/superpowers/specs/2026-10-03-trading-journal-phase7-design.md` |
 | Spec source (MASTER PROMPT) | `pasted-text.txt` in workspace root or repo root |
-| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2, 0008_phase6) |
+| Migrations | `apps/api/migrations/` (0001_init, 0002_oauth, 0003_phase1, 0004_phase2, 0005_phase4, 0006_phase5, 0007_phase5_2, 0008_phase6, 0009_phase7) |
 | sqlc queries | `apps/api/queries/` |
 | Domain entities | `apps/api/internal/domain/<entity>/` |
 | HTTP handlers | `apps/api/internal/httpapi/` |
@@ -136,6 +140,7 @@
 | Phase 5 store repos | `apps/api/internal/store/phase5_repos.go` |
 | Phase 5.2 store repos | `apps/api/internal/store/phase7_repos.go` |
 | Phase 6 store repos | `apps/api/internal/store/phase8_repos.go` |
+| Phase 7 store repos | `apps/api/internal/store/phase9_repos.go` |
 | FE pages | `apps/web/app/pages/` |
 | FE composables | `apps/web/app/composables/` |
 | FE stores | `apps/web/app/stores/` |
@@ -158,6 +163,7 @@
 - **Adding a new webhook event type (Phase 5.2+):** add a constant in `internal/domain/webhook/webhook.go` (EventType + append to AllEventTypes), then call `webhookSvc.Emit(ctx, EmitInput{EventType: <new>, Data: ...})` from wherever the event happens. The worker picks the row up on the next tick. Update the FE `useWebhooks.ts` `ALL_WEBHOOK_EVENTS` and the `/webhooks` page checkbox list.
 - **Adding a new LLM provider (Phase 6+):** implement `ai.Provider` interface (`Name() string`, `Generate(ctx, GenerateInput) (*GenerateResult, error)`) and add the wiring case in `internal/server/router.go`'s `buildAIProvider`. The interface uses raw `net/http` — no SDK dependency required.
 - **Adding a new AI analysis type (Phase 6+):** add a new method to `Service` and a new worker job struct mirroring `AnalysisJobPayload`. Today only per-trade commentary is supported; weekly recap / Q&A chat would be new job kinds.
+- **Adding a new Stripe webhook event (Phase 7+):** add a new `apply<EventType>` method on `StripeService` + a case in the `HandleWebhookEvent` switch. Use `EventApplyStore` methods that already exist (Phase 7 ships `WebhookEventInsert` + subscription/payment upserts). Unknown event types return `ErrUnknownEvent` — the handler logs + returns 200 so Stripe stops retrying.
 - **Adding a new analytics dimension (Phase 3+):** add a method to `TradeRepo` returning `[]BucketRow`, plus a handler in `phase1http/imports_handler.go` and a FE composable fn + component in `app/components/`. Reuse the `BucketRow` SQL helper.
 - **Adding a new PDF report section (Phase 3+):** add fields to `pdfreport.ReportRequest`, fill them in `phase3http.Handler.buildRequest`, render them in `signintech.go` using the existing `Cell/Line` primitives.
 - **Adding a new tenant-scoped table:** migration with `tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, query in `queries/<table>.sql`, repo wrapper, service use case. **Every query must include `WHERE tenant_id = $ctxTenantID`.**
