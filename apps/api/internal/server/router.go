@@ -451,6 +451,16 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		AnalyticsHourOfDay:       p1.HourOfDayBreakdown,
 		BillingPayments:          p4.Payments,
 	}, apiKeySvc, apiKeyBucket)
+
+	// Phase 10 — public write handlers. 8 endpoints under /v1/public/* with
+	// write:* scope guards + Idempotency-Key replay (POST only).
+	writeDeps := &phase5http.PublicWriteDeps{
+		Logger: logger,
+		Store:  st,
+	}
+	phase5http.RegisterWriteRoutes(e, writeDeps, apiKeySvc, apiKeyBucket)
+	logger.Info("public write api registered")
+
 	logger.Info("public api registered",
 		slog.String("rate_backend", cfg.RateLimitBackend),
 		slog.Int("rate_per_minute", cfg.APIPublicRatePerMinute),
