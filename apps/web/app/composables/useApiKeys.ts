@@ -1,4 +1,4 @@
-// useApiKeys — Phase 5 API key admin composables.
+// useApiKeys — Phase 5 (read) + Phase 10 (write) API key admin composables.
 //
 // All endpoints are JWT-authed (Bearer access token), distinct from the
 // public /v1/public/* surface (which uses API keys to authenticate).
@@ -6,18 +6,30 @@
 // The plaintext API key is returned EXACTLY ONCE at creation. The FE must
 // show it to the user and discard; the BE never persists the plaintext.
 
-export type ApiScope =
-  | 'read:accounts'
-  | 'read:trades'
-  | 'read:analytics'
-  | 'read:payments'
+import { API_SCOPES, type APIScopeValue } from '@trading-journal/shared'
 
-export const ALL_API_SCOPES: ApiScope[] = [
-  'read:accounts',
-  'read:trades',
-  'read:analytics',
-  'read:payments',
-]
+export type ApiScope = APIScopeValue
+
+// Re-export the shared scope metadata so the dialog can render labels + groups.
+export const ALL_API_SCOPES: ApiScope[] = API_SCOPES.map((s) => s.value)
+
+export type ApiScopeGroup = 'read' | 'write'
+
+export interface ApiScopeMeta {
+  value: ApiScope
+  label: string
+  group: ApiScopeGroup
+}
+
+export const API_SCOPES_META: ApiScopeMeta[] = API_SCOPES.map((s) => ({
+  value: s.value,
+  label: s.label,
+  group: s.group,
+}))
+
+// Convenience: split scopes by group (used by the /api-keys create dialog).
+export const READ_SCOPES: ApiScope[] = API_SCOPES_META.filter((s) => s.group === 'read').map((s) => s.value)
+export const WRITE_SCOPES: ApiScope[] = API_SCOPES_META.filter((s) => s.group === 'write').map((s) => s.value)
 
 export interface ApiKey {
   id: string

@@ -12,6 +12,9 @@ import { ref, onMounted } from 'vue'
 import {
   useApiKeys,
   ALL_API_SCOPES,
+  READ_SCOPES,
+  WRITE_SCOPES,
+  API_SCOPES_META,
   type ApiKey,
   type ApiScope,
   type GenerateResult,
@@ -254,15 +257,33 @@ onMounted(refresh)
           />
           <div class="text-subtitle-2 mb-1">Scopes</div>
           <div class="mb-3">
+            <div class="text-caption text-medium-emphasis mb-1">Read</div>
             <v-checkbox
-              v-for="s in ALL_API_SCOPES"
+              v-for="s in READ_SCOPES"
               :key="s"
               v-model="newScopes"
               :value="s"
-              :label="s"
+              :label="API_SCOPES_META.find(m => m.value === s)?.label || s"
               density="compact"
               hide-details
             />
+            <v-divider class="my-2" />
+            <div class="text-caption text-medium-emphasis mb-1">Write (Phase 10)</div>
+            <v-checkbox
+              v-for="s in WRITE_SCOPES"
+              :key="s"
+              v-model="newScopes"
+              :value="s"
+              :label="API_SCOPES_META.find(m => m.value === s)?.label || s"
+              density="compact"
+              hide-details
+            />
+            <v-btn
+              size="x-small"
+              variant="text"
+              class="mt-2"
+              @click="newScopes = WRITE_SCOPES"
+            >Select all write scopes</v-btn>
           </div>
           <v-select
             v-model="newExpiry"
