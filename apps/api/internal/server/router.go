@@ -131,6 +131,11 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 })
 	whWk.Start()
 
+	// Phase 10 — Idempotency sweeper (hourly cleanup of api_key_idempotency).
+	idemSweeper := NewIdempotencySweeper(st.Idempotency, time.Hour, logger)
+	stopIdemSweeper := idemSweeper.Start(context.Background())
+	defer stopIdemSweeper()
+
 	// Phase 6 — AI analysis service + worker pool job.
 	aiProvider, aiProviderErr := buildAIProvider(cfg, logger)
 	if aiProviderErr != nil {
