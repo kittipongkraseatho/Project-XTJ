@@ -135,3 +135,21 @@ export interface ImportJob {
   errors: unknown[]
   created_at: string
 }
+
+// ── Phase 5 + 10 — Public API key scopes ─────────────────────────────
+
+export const API_SCOPES = [
+  // Read (Phase 5)
+  { value: 'read:accounts',  label: 'Read accounts',     group: 'read' as const },
+  { value: 'read:trades',    label: 'Read trades',       group: 'read' as const },
+  { value: 'read:analytics', label: 'Read analytics',    group: 'read' as const },
+  { value: 'read:payments',  label: 'Read payments',     group: 'read' as const },
+  // Write (Phase 10)
+  { value: 'write:trades',   label: 'Create / update trades',   group: 'write' as const },
+  { value: 'write:journal',  label: 'Upsert trade journal',     group: 'write' as const },
+  { value: 'write:webhooks', label: 'Manage webhook subs',      group: 'write' as const },
+  { value: 'write:accounts', label: 'Create / update accounts', group: 'write' as const },
+] as const
+
+export type APIScopeValue = (typeof API_SCOPES)[number]['value']
+export type APIScopeGroup = 'read' | 'write'

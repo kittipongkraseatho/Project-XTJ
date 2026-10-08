@@ -6,14 +6,21 @@ import (
 	"github.com/gofrs/uuid"
 )
 
-// Scope is the per-key permission grant. Phase 5 is read-only.
+// Scope is the per-key permission grant. Phase 5 (read) + Phase 10 (write).
 type Scope string
 
 const (
+	// Read scopes (Phase 5).
 	ScopeReadAccounts  Scope = "read:accounts"
 	ScopeReadTrades    Scope = "read:trades"
 	ScopeReadAnalytics Scope = "read:analytics"
 	ScopeReadPayments  Scope = "read:payments"
+
+	// Write scopes (Phase 10).
+	ScopeWriteTrades   Scope = "write:trades"
+	ScopeWriteJournal  Scope = "write:journal"
+	ScopeWriteWebhooks Scope = "write:webhooks"
+	ScopeWriteAccounts Scope = "write:accounts"
 )
 
 // AllScopes lists every valid Scope (used by the FE selector).
@@ -22,6 +29,29 @@ var AllScopes = []Scope{
 	ScopeReadTrades,
 	ScopeReadAnalytics,
 	ScopeReadPayments,
+	ScopeWriteTrades,
+	ScopeWriteJournal,
+	ScopeWriteWebhooks,
+	ScopeWriteAccounts,
+}
+
+// ReadScopes and WriteScopes split AllScopes by group (FE groups them
+// in the /api-keys create dialog).
+var ReadScopes = []Scope{
+	ScopeReadAccounts, ScopeReadTrades, ScopeReadAnalytics, ScopeReadPayments,
+}
+var WriteScopes = []Scope{
+	ScopeWriteTrades, ScopeWriteJournal, ScopeWriteWebhooks, ScopeWriteAccounts,
+}
+
+// ScopeGroup returns "read" or "write" for a known scope.
+func (s Scope) ScopeGroup() string {
+	for _, rs := range ReadScopes {
+		if s == rs {
+			return "read"
+		}
+	}
+	return "write"
 }
 
 // IsValid reports whether s is one of AllScopes.

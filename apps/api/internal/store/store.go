@@ -63,6 +63,7 @@ type Store struct {
 	Payments          *PaymentRepo
 	ReportSchedules   *ReportScheduleRepo
 	APIKeys           *APIKeyRepo
+	Idempotency       *IdempotencyRepo
 	WebhookSubs       *WebhookSubscriptionRepo
 	WebhookDeliveries *WebhookDeliveryRepo
 	WebhookEvents     *WebhookEventRepo
@@ -103,6 +104,7 @@ func New(pool *pgxpool.Pool) *Store {
 		Payments:          &PaymentRepo{pool: pool},
 		ReportSchedules:   &ReportScheduleRepo{pool: pool},
 		APIKeys:           &APIKeyRepo{pool: pool},
+		Idempotency:       &IdempotencyRepo{pool: pool},
 		WebhookSubs:       &WebhookSubscriptionRepo{pool: pool},
 		WebhookDeliveries: &WebhookDeliveryRepo{pool: pool},
 		WebhookEvents:     &WebhookEventRepo{pool: pool},
