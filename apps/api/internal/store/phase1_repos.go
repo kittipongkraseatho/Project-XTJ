@@ -74,6 +74,19 @@ func (r *TradingAccountRepo) ListByTenant(ctx context.Context, tenantID uuid.UUI
 	return out, rows.Err()
 }
 
+// Update patches a trading account's mutable fields (Phase 10 — public API write:accounts).
+func (r *TradingAccountRepo) Update(ctx context.Context, a *trading_account.TradingAccount) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE trading_accounts SET
+		    display_name = $2,
+		    currency     = $3,
+		    leverage     = $4,
+		    updated_at   = now()
+		WHERE id = $1`,
+		a.ID, a.DisplayName, a.Currency, a.Leverage)
+	return err
+}
+
 func (r *TradingAccountRepo) GetByID(ctx context.Context, id uuid.UUID) (*trading_account.TradingAccount, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT id, user_id, tenant_id, broker, broker_account_id, display_name, currency, leverage, kind, metadata, is_active, created_at, updated_at
@@ -327,6 +340,25 @@ func (r *PositionRepo) Insert(ctx context.Context, p *position.Position) error {
 type TradeRepo struct{ pool DBTX }
 
 func (r *TradeRepo) WithTx(tx DBTX) *TradeRepo { return &TradeRepo{pool: tx} }
+
+// Update patches a trade's mutable fields (Phase 10 — public API write:trades).
+// Caller must have already verified tenant_id ownership.
+func (r *TradeRepo) Update(ctx context.Context, t *trade.Trade) error {
+	meta, _ := json.Marshal(t.Metadata)
+	if meta == nil {
+		meta = []byte("{}")
+	}
+	_, err := r.pool.Exec(ctx, `
+		UPDATE trades SET
+		    close_price  = $2,
+		    close_time   = $3,
+		    magic        = $4,
+		    metadata     = $5,
+		    updated_at   = now()
+		WHERE id = $1`,
+		t.ID, t.ClosePrice, t.CloseTime, t.Magic, meta)
+	return err
+}
 
 func (r *TradeRepo) Insert(ctx context.Context, t *trade.Trade) error {
 	meta, _ := json.Marshal(t.Metadata)
