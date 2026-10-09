@@ -54,8 +54,7 @@ func TestPhase9_E2E_RecapThenChat(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Boot pgvector Postgres.
-	pgC, err := tcpostgres.RunContainer(ctx,
-		testcontainers.WithImage("pgvector/pgvector:pg16"),
+	pgC, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg16",
 		tcpostgres.WithDatabase("tj_test"),
 		tcpostgres.WithUsername("tj"),
 		tcpostgres.WithPassword("devpass"),
@@ -80,7 +79,7 @@ func TestPhase9_E2E_RecapThenChat(t *testing.T) {
 	// 2. Configure env for server.New.
 	t.Setenv("DATABASE_URL", pgURL)
 	t.Setenv("REDIS_URL", "redis://localhost:6379/0") // Phase 5.1 redis isn't required for AI flow; mock provider used
-	t.Setenv("JWT_SECRET_PATH", "")                  // auto-gen in keys/
+	t.Setenv("JWT_SECRET_PATH", "")                   // auto-gen in keys/
 	t.Setenv("AI_PROVIDER", "stub")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("EMBED_PROVIDER", "stub")

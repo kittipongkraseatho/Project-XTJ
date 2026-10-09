@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"net/http"
 	"strings"
 	"time"
 
@@ -56,12 +55,12 @@ type AuthTenant struct {
 }
 
 type AuthPlan struct {
-	ID        uuid.UUID `json:"id"`
-	Code      string    `json:"code"`
-	Name      string    `json:"name"`
-	Currency  string    `json:"currency"`
-	PriceCents int64    `json:"price_cents"`
-	Interval  string    `json:"interval"`
+	ID         uuid.UUID `json:"id"`
+	Code       string    `json:"code"`
+	Name       string    `json:"name"`
+	Currency   string    `json:"currency"`
+	PriceCents int64     `json:"price_cents"`
+	Interval   string    `json:"interval"`
 }
 
 type AuthTokens struct {
@@ -548,12 +547,3 @@ func slugify(name string) string {
 	}
 	return s
 }
-
-// status returns the HTTP status for a service error.
-func status(err error) int {
-	return observability.HTTPStatus(err)
-}
-
-// suppress unused warning if helpers are dropped during refactors.
-var _ = http.StatusOK
-var _ = errors.New

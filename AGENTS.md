@@ -12,7 +12,15 @@
 
 ## Current phase
 
-**Phase 10 complete. All planned phases (0–5) shipped + Phase 5.1 production hardening + Phase 5.2 outbound webhooks + Phase 6 AI analysis + Phase 7 Stripe webhook state machine + Phase 8 Real MetaApi REST handshake + Phase 9 AI Expansion (weekly recap + Q&A chat with RAG) + Phase 10 Public API Write Scopes (write:trades + write:journal + write:webhooks + write:accounts + Idempotency-Key) shipped.**
+**Legacy Phase 0–10 platform delivery is implemented at capability level. The product roadmap is rebaselined to R0 Foundation → R5 Autonomous Trading; R0/R1 core functionality exists but release sign-off is partial, R2/R3 are partial, and R4/R5 are not started. First close the verification/release blockers, then start R2 Trading Intelligence with Behavior Intelligence and Strategy/Strategy Versioning.**
+
+Canonical roadmap: `docs/roadmaps/2026-10-09-trading-journal-ai-trading-roadmap-th.md`
+
+Implementation audit: `docs/roadmaps/2026-10-09-trading-journal-implementation-audit.md`
+
+**Target safety boundary:** AI must not call MetaApi directly. Any future order must pass Strategy → Risk Engine → Execution Engine, with Backtest → OOS → Walk Forward → Paper Trading → User/Risk approval gates before Live. This rebaseline does not authorize order-execution work.
+
+**Audit blockers to keep visible:** the root Makefile still hard-codes an old checkout path; API CI/local Postgres configuration does not consistently provide pgvector or enable Docker-gated E2E coverage; the current audit host has no Go executable; and several money-bearing Go domain structs use `float64` despite the money invariant. See the implementation audit for evidence and follow-up.
 
 - Phase 0 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md` — Foundation ✅ shipped
 - Phase 1 spec: `docs/superpowers/specs/2026-10-03-trading-journal-phase1-design.md` — Free + ฿99 Upload Journal ✅ shipped

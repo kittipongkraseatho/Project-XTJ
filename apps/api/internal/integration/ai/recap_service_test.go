@@ -19,7 +19,6 @@ import (
 type fakeRecapStore struct {
 	mu          sync.Mutex
 	recaps      map[uuid.UUID]*ai.Recap
-	usage       *ai.DailyUsage
 	weeklyUsage map[string]*ai.DailyUsage
 }
 
@@ -277,9 +276,9 @@ func TestRecapService_RecapAccount_IdempotentCacheHit(t *testing.T) {
 		ID: uuid.Must(uuid.NewV7()), TenantID: tenantID, AccountID: accountID,
 		WeekStart: mondayOf(time.Now()), WeekEnd: mondayOf(time.Now()).AddDate(0, 0, 6),
 		PromptHash: hash, Provider: "stub", ModelID: "stub-default", Status: ai.StatusSuccess,
-		Content: strPtr("cached recap content"),
+		Content:           strPtr("cached recap content"),
 		RequestedByUserID: uuid.Must(uuid.NewV7()),
-		RequestedAt: time.Now().Add(-time.Minute),
+		RequestedAt:       time.Now().Add(-time.Minute),
 	}
 	completedAt := time.Now().Add(-30 * time.Second)
 	seed.CompletedAt = &completedAt
@@ -443,5 +442,5 @@ func (errorProvider) Generate(ctx context.Context, in GenerateInput) (*GenerateR
 	return nil, errors.New("provider boom")
 }
 
-func strPtr(s string) *string  { return &s }
+func strPtr(s string) *string        { return &s }
 func timePtr(t time.Time) *time.Time { return &t }

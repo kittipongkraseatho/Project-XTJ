@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -20,8 +18,8 @@ import (
 // ── Fake EventApplyStore ─────────────────────────────────────────────
 
 type fakeStore struct {
-	mu           sync.Mutex
-	events          map[string]bool          // stripe_event_id → already seen
+	mu             sync.Mutex
+	events         map[string]bool                       // stripe_event_id → already seen
 	subsByExternal map[string]*subscription.Subscription // external_sub_id → row
 	subsByID       map[uuid.UUID]*subscription.Subscription
 	paymentsByInv  map[string]*payment.Payment // external_invoice_id → row
@@ -29,7 +27,7 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		events:          map[string]bool{},
+		events:         map[string]bool{},
 		subsByExternal: map[string]*subscription.Subscription{},
 		subsByID:       map[uuid.UUID]*subscription.Subscription{},
 		paymentsByInv:  map[string]*payment.Payment{},
@@ -80,10 +78,6 @@ func (f *fakeStore) PaymentUpsertByExternalInvoice(_ context.Context, p *payment
 	return nil
 }
 
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
 // ── Tests ───────────────────────────────────────────────────────────
 
 // mkEvent builds a verified *WebhookEvent for one of the 5 supported types.
@@ -91,12 +85,12 @@ func mkEvent(t *testing.T, eventID, eventType, customerID, subID, invoiceID stri
 	t.Helper()
 	now := time.Now().UTC().Unix()
 	obj := map[string]any{
-		"id":                  invoiceID,
-		"customer":            customerID,
-		"subscription":        subID,
-		"amount_paid":         amount,
-		"currency":            "thb",
-		"status":              "paid",
+		"id":                   invoiceID,
+		"customer":             customerID,
+		"subscription":         subID,
+		"amount_paid":          amount,
+		"currency":             "thb",
+		"status":               "paid",
 		"current_period_start": now,
 		"current_period_end":   now + 30*86400,
 		"cancel_at_period_end": false,
@@ -150,9 +144,9 @@ func TestStripeService_CheckoutCompleted_CreatesSubscription(t *testing.T) {
 		"type": "checkout.session.completed",
 		"data": map[string]any{
 			"object": map[string]any{
-				"id":                 "cs_test_1",
-				"customer":           "cus_1",
-				"subscription":       "sub_1",
+				"id":                  "cs_test_1",
+				"customer":            "cus_1",
+				"subscription":        "sub_1",
 				"client_reference_id": tenantID.String(),
 				"metadata": map[string]any{
 					"tenant_id": tenantID.String(),
@@ -304,11 +298,11 @@ func TestStripeService_Idempotency_SecondCallIsNoop(t *testing.T) {
 		"type": "checkout.session.completed",
 		"data": map[string]any{
 			"object": map[string]any{
-				"id":                 "cs_test_idem",
-				"customer":           "cus_idem",
-				"subscription":       "sub_idem",
+				"id":                  "cs_test_idem",
+				"customer":            "cus_idem",
+				"subscription":        "sub_idem",
 				"client_reference_id": tenantID.String(),
-				"metadata":           map[string]any{"tenant_id": tenantID.String(), "plan_code": "pro"},
+				"metadata":            map[string]any{"tenant_id": tenantID.String(), "plan_code": "pro"},
 			},
 		},
 	})

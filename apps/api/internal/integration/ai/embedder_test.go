@@ -146,7 +146,9 @@ func TestOpenAIEmbedder_Ok(t *testing.T) {
 			"usage": map[string]any{"prompt_tokens": 10, "total_tokens": 10},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer srv.Close()
 

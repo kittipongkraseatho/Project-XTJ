@@ -3,15 +3,15 @@
 // Boots a real Postgres + Redis via testcontainers-go, runs migrations,
 // then exercises the full API-key lifecycle via HTTP:
 //
-//   1. POST /v1/auth/register           → JWT cookie/access tokens
-//   2. GET  /v1/me                      → confirms tenant
-//   3. POST /v1/api-keys                → mints a key, returns plaintext
-//   4. GET  /v1/public/accounts         (no key) → 401
-//   5. GET  /v1/public/accounts         (with key) → 200
-//   6. POST /v1/api-keys (only read:accounts) → call read:trades → 403
-//   7. burn burst → 11th call → 429 + Retry-After
-//   8. DELETE /v1/api-keys/:id          → 204
-//   9. reuse plaintext                      → 401 (revoked)
+//  1. POST /v1/auth/register           → JWT cookie/access tokens
+//  2. GET  /v1/me                      → confirms tenant
+//  3. POST /v1/api-keys                → mints a key, returns plaintext
+//  4. GET  /v1/public/accounts         (no key) → 401
+//  5. GET  /v1/public/accounts         (with key) → 200
+//  6. POST /v1/api-keys (only read:accounts) → call read:trades → 403
+//  7. burn burst → 11th call → 429 + Retry-After
+//  8. DELETE /v1/api-keys/:id          → 204
+//  9. reuse plaintext                      → 401 (revoked)
 //  10. GET /v1/api-keys                 → confirm revoked status
 //
 // Gated by `INTEGRATION_TESTS=on` (default off — skipped without Docker).
@@ -101,8 +101,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{t: t}
 
 	// ── Postgres ────────────────────────────────────────────────────────
-	pg, err := tcpostgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:16-alpine"),
+	pg, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg16",
 		tcpostgres.WithDatabase("tj_test"),
 		tcpostgres.WithUsername("tj"),
 		tcpostgres.WithPassword("devpass"),
@@ -132,8 +131,7 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	// ── Redis ───────────────────────────────────────────────────────────
-	rdbContainer, err := tcredis.RunContainer(ctx,
-		testcontainers.WithImage("redis:7-alpine"),
+	rdbContainer, err := tcredis.Run(ctx, "redis:7-alpine",
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("Ready to accept connections").WithStartupTimeout(30*time.Second)),
 	)

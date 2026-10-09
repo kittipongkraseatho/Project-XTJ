@@ -16,10 +16,10 @@ import (
 // ── Fakes ────────────────────────────────────────────────────────────
 
 type fakeChatStore struct {
-	mu          sync.Mutex
-	threads     map[uuid.UUID]*ai.ChatThread
-	messages    map[uuid.UUID]*ai.ChatMessage
-	usage       map[string]*ai.DailyUsage
+	mu       sync.Mutex
+	threads  map[uuid.UUID]*ai.ChatThread
+	messages map[uuid.UUID]*ai.ChatMessage
+	usage    map[string]*ai.DailyUsage
 }
 
 func newFakeChatStore() *fakeChatStore {
@@ -291,8 +291,12 @@ func TestChatService_ListThreads(t *testing.T) {
 	svc := NewChatService(ChatConfig{Store: store, Provider: NewStubProvider()})
 	tenantID := uuid.Must(uuid.NewV7())
 	userID := uuid.Must(uuid.NewV7())
-	svc.CreateThread(context.Background(), ChatCreateInput{TenantID: tenantID, UserID: userID})
-	svc.CreateThread(context.Background(), ChatCreateInput{TenantID: tenantID, UserID: userID})
+	if _, err := svc.CreateThread(context.Background(), ChatCreateInput{TenantID: tenantID, UserID: userID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := svc.CreateThread(context.Background(), ChatCreateInput{TenantID: tenantID, UserID: userID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
 	ts, err := svc.ListThreads(context.Background(), tenantID, userID, 10)
 	if err != nil {
 		t.Fatalf("list: %v", err)

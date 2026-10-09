@@ -6,8 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -159,10 +157,3 @@ func (r *recordingResponse) Write(b []byte) (int, error) {
 	r.body.Write(b)
 	return r.ResponseWriter.Write(b)
 }
-
-// idemCtxKey is exported via context helpers (kept private to package).
-type idemCtxKey struct{}
-
-var _ = errors.New
-var _ = fmt.Sprintf
-var _ context.Context = nil

@@ -96,8 +96,7 @@ function toggleExpand(id: string) {
 
 const budgetText = computed(() => {
   if (!usage.value) return ''
-  const used = usage.value.requests + (usage.value as any).recap_requests || usage.value.requests
-  return `${usage.value.requests + ((usage.value as any).recap_requests ?? 0)} / ${usage.value.daily_budget} used today`
+  return `${usage.value.requests + (usage.value.recap_requests ?? 0)} / ${usage.value.daily_budget} used today`
 })
 
 onMounted(refresh)

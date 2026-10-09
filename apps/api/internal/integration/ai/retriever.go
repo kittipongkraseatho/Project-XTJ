@@ -19,12 +19,11 @@ import (
 // The fallback is detected by the embedder's `Name()` returning "stub". If a
 // future embedder also degrades quality, we can swap to a different signal.
 type ChatRAGRetriever struct {
-	embedder    Embedder
-	embedding   EmbeddingSearcher
-	recentList  RecentTradeLister
-	topK        int
-	stubKeyword string // keyword used for ILIKE fallback when stub + no account scope
-	log         *slog.Logger
+	embedder   Embedder
+	embedding  EmbeddingSearcher
+	recentList RecentTradeLister
+	topK       int
+	log        *slog.Logger
 }
 
 // EmbeddingSearcher is the contract for cosine search (delegated to Store

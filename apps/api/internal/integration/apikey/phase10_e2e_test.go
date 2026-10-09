@@ -5,14 +5,14 @@
 // Boots a real Postgres via testcontainers-go, runs migrations, then
 // exercises the public write lifecycle via HTTP:
 //
-//   1. Register user + mint API key with all 4 write scopes.
-//   2. POST /v1/public/accounts (Idempotency-Key=A) → 201
-//   3. POST /v1/public/accounts (Idempotency-Key=A) → 201 (cached replay)
-//   4. POST /v1/public/accounts (Idempotency-Key=A, different body) → 409
-//   5. POST /v1/public/trades → 201 (with Idempotency-Key)
-//   6. PUT  /v1/public/trades/:id/journal → 200 (URL-idempotent, no key needed)
-//   7. POST /v1/public/webhooks/subscriptions → 201 (plaintext secret shown once)
-//   8. Verify audit_logs row inserted for each success.
+//  1. Register user + mint API key with all 4 write scopes.
+//  2. POST /v1/public/accounts (Idempotency-Key=A) → 201
+//  3. POST /v1/public/accounts (Idempotency-Key=A) → 201 (cached replay)
+//  4. POST /v1/public/accounts (Idempotency-Key=A, different body) → 409
+//  5. POST /v1/public/trades → 201 (with Idempotency-Key)
+//  6. PUT  /v1/public/trades/:id/journal → 200 (URL-idempotent, no key needed)
+//  7. POST /v1/public/webhooks/subscriptions → 201 (plaintext secret shown once)
+//  8. Verify audit_logs row inserted for each success.
 //
 // Skipped unless INTEGRATION_TESTS=on + Docker available; runs in CI.
 package apikey_test
@@ -53,8 +53,7 @@ func TestPhase10_E2E_PublicAPIWriteLifecycle(t *testing.T) {
 	skipIfDisabled(t)
 	ctx := context.Background()
 
-	pgC, err := tcpostgres.RunContainer(ctx,
-		testcontainers.WithImage("postgres:16-alpine"),
+	pgC, err := tcpostgres.Run(ctx, "pgvector/pgvector:pg16",
 		tcpostgres.WithDatabase("tj_test"),
 		tcpostgres.WithUsername("tj"),
 		tcpostgres.WithPassword("devpass"),
@@ -130,8 +129,10 @@ func TestPhase10_E2E_PublicAPIWriteLifecycle(t *testing.T) {
 		return
 	}
 	var kr struct {
-		Key        struct{ ID string `json:"id"` } `json:"key"`
-		Plaintext  string `json:"plaintext"`
+		Key struct {
+			ID string `json:"id"`
+		} `json:"key"`
+		Plaintext string `json:"plaintext"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&kr)
 	resp.Body.Close()
@@ -189,7 +190,7 @@ func TestPhase10_E2E_PublicAPIWriteLifecycle(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("post accounts replay status %d", resp.StatusCode)
 	}
-	if resp.Header().Get("Idempotent-Replay") != "true" {
+	if resp.Header.Get("Idempotent-Replay") != "true" {
 		t.Fatalf("expected Idempotent-Replay header on cached response")
 	}
 	resp.Body.Close()

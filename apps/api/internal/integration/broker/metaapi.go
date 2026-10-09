@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -51,12 +52,12 @@ var (
 
 // MetaApiConfig is the wire-up.
 type MetaApiConfig struct {
-	Token             string
-	Region            string
-	AccountID         string
-	BaseURL           string
-	DeployTimeout     time.Duration // default 10s
-	HTTPTimeout       time.Duration // default 15s
+	Token         string
+	Region        string
+	AccountID     string
+	BaseURL       string
+	DeployTimeout time.Duration // default 10s
+	HTTPTimeout   time.Duration // default 15s
 }
 
 // NewMetaApiAdapter builds an adapter.
@@ -158,12 +159,12 @@ func (m *MetaApiAdapter) doJSON(ctx context.Context, method, path string, body a
 
 // accountListItem mirrors /users/current/accounts items.
 type accountListItem struct {
-	ID       string `json:"_id"`
-	Login    string `json:"login"`
-	Server   string `json:"server"`
-	State    string `json:"state"`
-	Type     string `json:"type"`
-	Region   string `json:"region"`
+	ID     string `json:"_id"`
+	Login  string `json:"login"`
+	Server string `json:"server"`
+	State  string `json:"state"`
+	Type   string `json:"type"`
+	Region string `json:"region"`
 }
 
 // accountStateBody mirrors /users/current/accounts/{id}.
@@ -174,10 +175,10 @@ type accountStateBody struct {
 
 // createAccountBody is the payload for POST /users/current/accounts.
 type createAccountBody struct {
-	Login   string `json:"login"`
-	Server  string `json:"server"`  // e.g. "Broker-Demo"
-	Type    string `json:"type"`    // "cloud" | "self-hosted"
-	Region  string `json:"region"`  // matches adapter Region
+	Login    string `json:"login"`
+	Server   string `json:"server"` // e.g. "Broker-Demo"
+	Type     string `json:"type"`   // "cloud" | "self-hosted"
+	Region   string `json:"region"` // matches adapter Region
 	Platform string `json:"platform,omitempty"`
 }
 
@@ -210,10 +211,10 @@ func (m *MetaApiAdapter) Connect(ctx context.Context, req ConnectRequest) (Conne
 	// 2. Create if missing.
 	if match == nil {
 		newAcc := createAccountBody{
-			Login:   req.Login,
-			Server:  req.Server,
-			Type:    "cloud",
-			Region:  m.Region,
+			Login:    req.Login,
+			Server:   req.Server,
+			Type:     "cloud",
+			Region:   m.Region,
 			Platform: "mt5",
 		}
 		var created accountListItem
@@ -260,19 +261,19 @@ type dealTicketItem struct {
 
 // dealDetailBody mirrors /history/deals/{ticket}.
 type dealDetailBody struct {
-	Ticket      string  `json:"ticket"`
-	Symbol      string  `json:"symbol"`
-	Type        string  `json:"type"`        // "DEAL_TYPE_BUY" | "DEAL_TYPE_SELL"
-	Volume      float64 `json:"volume"`
-	OpenPrice   float64 `json:"openPrice"`
-	ClosePrice  float64 `json:"closePrice"`
-	OpenTime    string  `json:"openTime"`
-	CloseTime   string  `json:"closeTime"`
-	Commission  float64 `json:"commission"`
-	Swap        float64 `json:"swap"`
-	Profit      float64 `json:"profit"`
-	Magic       int64   `json:"magic"`
-	Comment     string  `json:"comment"`
+	Ticket     string  `json:"ticket"`
+	Symbol     string  `json:"symbol"`
+	Type       string  `json:"type"` // "DEAL_TYPE_BUY" | "DEAL_TYPE_SELL"
+	Volume     float64 `json:"volume"`
+	OpenPrice  float64 `json:"openPrice"`
+	ClosePrice float64 `json:"closePrice"`
+	OpenTime   string  `json:"openTime"`
+	CloseTime  string  `json:"closeTime"`
+	Commission float64 `json:"commission"`
+	Swap       float64 `json:"swap"`
+	Profit     float64 `json:"profit"`
+	Magic      int64   `json:"magic"`
+	Comment    string  `json:"comment"`
 }
 
 // FetchDeals implements Provider.
@@ -319,15 +320,26 @@ func mapMetaApiDeal(d dealDetailBody, externalAccountID string) Deal {
 		ProviderDealID: provID,
 		Symbol:         d.Symbol,
 		Direction:      directionFromMetaType(d.Type),
-		Volume:         int64(d.Volume * 100_000),
-		OpenPrice:      int64(d.OpenPrice * 100_000),
-		ClosePrice:     int64(d.ClosePrice * 100_000),
+		Volume:         scaledInt64(d.Volume, 100_000),
+		OpenPrice:      scaledInt64(d.OpenPrice, 100_000),
+		ClosePrice:     scaledInt64(d.ClosePrice, 100_000),
 		OpenTime:       openTime,
 		CloseTime:      closeTime,
-		Commission:     int64(d.Commission * 100),
-		Swap:           int64(d.Swap * 100),
-		Profit:         int64(d.Profit * 100),
+		Commission:     scaledInt64(d.Commission, 100),
+		Swap:           scaledInt64(d.Swap, 100),
+		Profit:         scaledInt64(d.Profit, 100),
 	}
+}
+
+// scaledInt64 converts an external decimal number to the canonical integer
+// unit using round-to-nearest. Direct int64(value*scale) truncates fractional
+// units and can lose a unit because decimal JSON values are represented as
+// binary floating point during decoding.
+func scaledInt64(value float64, scale int64) int64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0
+	}
+	return int64(math.Round(value * float64(scale)))
 }
 
 func directionFromMetaType(t string) string {
@@ -372,32 +384,32 @@ func (m *MetaApiAdapter) Disconnect(_ context.Context, _ string) error {
 // MetaApiDealFromBroker maps MetaApi SDK shape → canonical Deal.
 // Kept for future SDK adapter parity.
 func MetaApiDealFromBroker(md struct {
-	Ticket    string
-	Symbol    string
-	Type      string
-	Volume    float64
-	OpenPrice float64
+	Ticket     string
+	Symbol     string
+	Type       string
+	Volume     float64
+	OpenPrice  float64
 	ClosePrice float64
-	OpenTime  time.Time
-	CloseTime time.Time
+	OpenTime   time.Time
+	CloseTime  time.Time
 	Commission float64
-	Swap      float64
-	Profit    float64
-	Magic     int64
-	Comment   string
+	Swap       float64
+	Profit     float64
+	Magic      int64
+	Comment    string
 }, externalAccountID string) Deal {
 	return Deal{
 		ProviderDealID: uuid.NewV5(DedupNamespace, externalAccountID+":"+md.Ticket).String(),
 		Symbol:         md.Symbol,
 		Direction:      directionFromMetaType(md.Type),
-		Volume:         int64(md.Volume * 100_000),
-		OpenPrice:      int64(md.OpenPrice * 100_000),
-		ClosePrice:     int64(md.ClosePrice * 100_000),
+		Volume:         scaledInt64(md.Volume, 100_000),
+		OpenPrice:      scaledInt64(md.OpenPrice, 100_000),
+		ClosePrice:     scaledInt64(md.ClosePrice, 100_000),
 		OpenTime:       md.OpenTime,
 		CloseTime:      md.CloseTime,
-		Commission:     int64(md.Commission * 100),
-		Swap:           int64(md.Swap * 100),
-		Profit:         int64(md.Profit * 100),
+		Commission:     scaledInt64(md.Commission, 100),
+		Swap:           scaledInt64(md.Swap, 100),
+		Profit:         scaledInt64(md.Profit, 100),
 	}
 }
 

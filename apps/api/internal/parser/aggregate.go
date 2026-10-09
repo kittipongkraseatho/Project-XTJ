@@ -23,25 +23,25 @@ import (
 // For hedge accounts, this is a known limitation — Phase 2 adds MetaApi
 // for proper position tracking (where each deal carries position_id).
 type Trade struct {
-	ID            uuid.UUID
-	Symbol         string
-	Direction     string // "long" | "short"
-	Volume        float64
-	OpenPrice     float64
-	ClosePrice    float64
-	OpenTime      time.Time
-	CloseTime     time.Time
-	HoldingSec    int64
-	GrossProfit   float64
-	GrossLoss     float64
-	NetPL         float64
-	Commission    float64
-	Swap          float64
-	Magic         *int64
-	Outcome       string // "win" | "loss" | "breakeven"
-	IsPartial     bool
-	EntryDealID   string
-	ExitDealIDs  []string
+	ID          uuid.UUID
+	Symbol      string
+	Direction   string // "long" | "short"
+	Volume      float64
+	OpenPrice   float64
+	ClosePrice  float64
+	OpenTime    time.Time
+	CloseTime   time.Time
+	HoldingSec  int64
+	GrossProfit float64
+	GrossLoss   float64
+	NetPL       float64
+	Commission  float64
+	Swap        float64
+	Magic       *int64
+	Outcome     string // "win" | "loss" | "breakeven"
+	IsPartial   bool
+	EntryDealID string
+	ExitDealIDs []string
 }
 
 func Aggregate(deals []Deal) []Trade {
@@ -86,22 +86,21 @@ func aggregateGroup(group []Deal) []Trade {
 			// Close previous if still open (defensive)
 			if openPos != nil {
 				out = append(out, closePosition(openPos, d))
-				openPos = nil
 			}
 			dir := "long"
 			if d.Type == "sell" {
 				dir = "short"
 			}
 			openPos = &openPosition{
-				Symbol:     d.Symbol,
-				Direction:  dir,
-				Volume:     d.Volume,
-				OpenPrice:  d.Price,
-				OpenTime:   d.ExecutedAt,
-				Magic:      d.Magic,
+				Symbol:      d.Symbol,
+				Direction:   dir,
+				Volume:      d.Volume,
+				OpenPrice:   d.Price,
+				OpenTime:    d.ExecutedAt,
+				Magic:       d.Magic,
 				EntryDealID: d.ProviderDealID,
-				Commission: d.Commission,
-				Swap:       d.Swap,
+				Commission:  d.Commission,
+				Swap:        d.Swap,
 			}
 		case "exit", "exit_inout":
 			if openPos == nil {
@@ -116,7 +115,6 @@ func aggregateGroup(group []Deal) []Trade {
 			// inout reverses position — for Phase 1 simplification, treat as close+open
 			if openPos != nil {
 				out = append(out, closePosition(openPos, d))
-				openPos = nil
 			}
 			dir := "long"
 			if d.Type == "sell" {

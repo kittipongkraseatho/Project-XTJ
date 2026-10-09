@@ -25,9 +25,8 @@ import (
 // ── Fakes ────────────────────────────────────────────────────────────
 
 type fakeIdempotencyStore struct {
-	mu     sync.Mutex
-	rows   map[string]*store.CachedResponse // key = "api_key_id|idempotency_key"
-	store  *store.IdempotencyRepo
+	mu   sync.Mutex
+	rows map[string]*store.CachedResponse // key = "api_key_id|idempotency_key"
 }
 
 func newFakeIdempotencyStore() *fakeIdempotencyStore {

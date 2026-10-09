@@ -11,7 +11,6 @@
 import { ref, onMounted } from 'vue'
 import {
   useApiKeys,
-  ALL_API_SCOPES,
   READ_SCOPES,
   WRITE_SCOPES,
   API_SCOPES_META,
@@ -22,7 +21,7 @@ import {
 
 definePageMeta({ name: 'api-keys' })
 
-const { list, create, revoke, update } = useApiKeys()
+const { list, create, revoke } = useApiKeys()
 
 const keys = ref<ApiKey[]>([])
 const loading = ref(true)

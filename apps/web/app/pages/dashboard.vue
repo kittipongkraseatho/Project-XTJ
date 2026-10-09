@@ -48,7 +48,7 @@ async function refresh() {
     const accountID = currentAccountID.value
     const [ov, tr, eq] = await Promise.all([
       getOverview(accountID ?? undefined),
-      list({ account_id: accountID ?? undefined, limit: 10 }),
+      list({ accountId: accountID ?? undefined, limit: 10 }),
       $fetch<{ equity_curve: any[] }>('/v1/analytics/equity-curve', {
         query: { limit: 200, account_id: accountID ?? undefined },
       }),

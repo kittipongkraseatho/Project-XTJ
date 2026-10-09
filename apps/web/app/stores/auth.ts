@@ -3,6 +3,7 @@
 
 import { defineStore } from 'pinia'
 import type { AuthUser, AuthTenant, AuthPlan, AuthTokens } from '@trading-journal/shared'
+import { apiGet, authLogout } from '~/composables/useApi'
 
 interface AuthState {
   user: AuthUser | null

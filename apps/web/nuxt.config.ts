@@ -1,8 +1,17 @@
 // nuxt.config.ts — Trading Journal web (Nuxt 3 + Vuetify + Pinia + PWA)
 
+import { resolve } from 'node:path'
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-10-01',
   devtools: { enabled: true },
+  // Keep Nuxt's source root aligned with the repository's Nuxt 4-style app/ layout.
+  // This makes ~/* and @/* resolve to app/* during both Vite build and vue-tsc.
+  srcDir: 'app/',
+  dir: {
+    // Keep static PWA icons in the existing repository-level public/ folder.
+    public: resolve(__dirname, 'public'),
+  },
 
   modules: [
     '@pinia/nuxt',
@@ -34,11 +43,17 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
-      apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL || 'http://localhost:8080',
+      apiBaseUrl: process.env.NUXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8080',
     },
   },
 
-  css: ['vuetify/styles', '@mdi/font/css/materialdesignicons.css', '~/assets/scss/global.scss'],
+  alias: {
+    // The shared package is intentionally source-linked in this monorepo so
+    // frontend typecheck/build use the same DTO contract as the API package.
+    '@trading-journal/shared': resolve(__dirname, '../../packages/shared/src'),
+  },
+
+  css: ['vuetify/styles', '@mdi/font/css/materialdesignicons.css', resolve(__dirname, 'assets/scss/global.scss')],
 
   build: {
     transpile: ['vuetify'],

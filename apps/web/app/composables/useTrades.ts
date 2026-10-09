@@ -1,20 +1,6 @@
 // useTrades — Phase 1 trades list/detail composables.
 
-interface Trade {
-  id: string
-  symbol: string
-  direction: 'long' | 'short'
-  open_time: string
-  close_time: string | null
-  volume: number
-  open_price: number
-  close_price: number | null
-  gross_profit: number
-  gross_loss: number
-  net_p_l: number
-  outcome: 'win' | 'loss' | 'breakeven'
-  is_partial: boolean
-}
+import type { Trade } from '@trading-journal/shared'
 
 export function useTrades() {
   async function list(opts: { accountId?: string; limit?: number; offset?: number } = {}) {

@@ -86,7 +86,7 @@ func (MockProvider) FetchDeals(_ context.Context, req FetchDealsRequest) ([]Deal
 	refs := map[string]int64{
 		"EURUSD": 1_080_000,
 		"GBPUSD": 1_270_000,
-		"USDJPY": 152_000_000, // JPY pairs quoted to 3 decimals
+		"USDJPY": 152_000_000,   // JPY pairs quoted to 3 decimals
 		"XAUUSD": 2_350_000_000, // gold to 2 decimals × 100_000
 		"US30":   39_000_000_000,
 	}
@@ -168,7 +168,9 @@ func (MockProvider) FetchDeals(_ context.Context, req FetchDealsRequest) ([]Deal
 func seededRNG(externalAccountID string, day time.Time) *mrand.Rand {
 	h := sha256.New()
 	h.Write([]byte(externalAccountID))
-	binary.Write(h, binary.BigEndian, day.Unix())
+	if err := binary.Write(h, binary.BigEndian, day.Unix()); err != nil {
+		return nil
+	}
 	seed := int64(binary.BigEndian.Uint64(h.Sum(nil)[:8]))
 	return mrand.New(mrand.NewSource(seed))
 }

@@ -43,9 +43,6 @@ const labelGutter = 28
 const W = labelGutter + 24 * cellW + 6
 const H = labelGutter + 7 * cellH + 6
 
-function fmtMoney(v: number) {
-  return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
 </script>
 
 <template>

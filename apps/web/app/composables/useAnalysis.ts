@@ -31,7 +31,30 @@ export interface Usage {
   daily_budget: number
   hard_daily_cap: number
   headroom: number
+  recap_requests?: number
+  chat_requests?: number
+  embedding_tokens?: number
 }
+
+// Phase 3 analytics bucket contracts. Numeric weekday/hour buckets are
+// serialized as strings by the API, matching the shared backend shape.
+export interface AnalyticsBucketRow {
+  bucket: string
+  trade_count: number
+  wins: number
+  losses: number
+  breakevens: number
+  net_p_l: number
+  gross_profit: number
+  gross_loss: number
+  profit_factor: number
+  win_rate: number
+}
+
+export type SessionRow = AnalyticsBucketRow
+export type EARow = AnalyticsBucketRow
+export type DayOfWeekRow = AnalyticsBucketRow
+export type HourOfDayRow = AnalyticsBucketRow
 
 export function useAnalysis() {
   /** Kick off (idempotent). Returns the analysis row (pending or cached). */
@@ -56,5 +79,29 @@ export function useAnalysis() {
     return await $fetch<Usage>('/v1/ai/usage')
   }
 
-  return { analyze, getLatest, getUsage }
+  async function getSession(accountId: string | null = null): Promise<{ sessions: SessionRow[] }> {
+    return await $fetch<{ sessions: SessionRow[] }>('/v1/analytics/session', {
+      query: accountId ? { account_id: accountId } : {},
+    })
+  }
+
+  async function getEA(accountId: string | null = null): Promise<{ eas: EARow[] }> {
+    return await $fetch<{ eas: EARow[] }>('/v1/analytics/ea', {
+      query: accountId ? { account_id: accountId } : {},
+    })
+  }
+
+  async function getDayOfWeek(accountId: string | null = null): Promise<{ weekdays: DayOfWeekRow[] }> {
+    return await $fetch<{ weekdays: DayOfWeekRow[] }>('/v1/analytics/day-of-week', {
+      query: accountId ? { account_id: accountId } : {},
+    })
+  }
+
+  async function getHourOfDay(accountId: string | null = null): Promise<{ hours: HourOfDayRow[] }> {
+    return await $fetch<{ hours: HourOfDayRow[] }>('/v1/analytics/hour-of-day', {
+      query: accountId ? { account_id: accountId } : {},
+    })
+  }
+
+  return { analyze, getLatest, getUsage, getSession, getEA, getDayOfWeek, getHourOfDay }
 }

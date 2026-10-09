@@ -33,7 +33,6 @@ func (r *UserRepo) Create(ctx context.Context, u *user.User) error {
 	if err := row.Scan(&u.CreatedAt, &u.UpdatedAt); err != nil {
 		return err
 	}
-	u.Metadata = u.Metadata
 	if u.Metadata == nil {
 		u.Metadata = map[string]any{}
 	}

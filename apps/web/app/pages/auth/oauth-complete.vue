@@ -3,7 +3,6 @@
 // Spec §7A.7 / Step 13.
 
 import { useAuthStore } from '~/stores/auth'
-import { apiGet } from '~/composables/useApi'
 
 definePageMeta({ name: 'auth-oauth-complete' })
 

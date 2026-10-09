@@ -2,7 +2,7 @@
 
 Multi-tenant SaaS for traders — manual MT5 history upload, auto-sync via MetaApi, analytics, journal, risk management.
 
-> **Status:** Phase 0 — Foundation (in progress). See [spec](./docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md) for the full design.
+> **Status:** Legacy Phase 0–10 platform delivery is implemented. The product roadmap is now rebaselined toward R0 Foundation → R5 Autonomous Trading; R2 Trading Intelligence is the next incomplete product gate. See the [canonical roadmap](./docs/roadmaps/2026-10-09-trading-journal-ai-trading-roadmap-th.md) and [implementation audit](./docs/roadmaps/2026-10-09-trading-journal-implementation-audit.md).
 
 ---
 
@@ -92,20 +92,23 @@ docs/superpowers/specs/ # phase-0 design doc
 
 - **[Phase 0 design](./docs/superpowers/specs/2026-10-03-trading-journal-phase0-design.md)** — full architecture, data model, security, observability, testing, DoD
 - **[AGENTS.md](./AGENTS.md)** — agent-facing project context (where to find things, how to extend)
+- **[AI Trading roadmap](./docs/roadmaps/2026-10-09-trading-journal-ai-trading-roadmap-th.md)** — target R0–R5 releases and Phase 0–16 gates
+- **[Implementation audit](./docs/roadmaps/2026-10-09-trading-journal-implementation-audit.md)** — evidence mapping and known blockers
 
 ---
 
-## Phase roadmap
+## Product roadmap
 
-| Phase | Scope | When |
+| Release | Scope | Current status |
 |---|---|---|
-| **0** | Auth · Tenant · RBAC · OAuth (Google/Line) · PWA · CI | now |
-| 1 | MT5 HTML/CSV parser · Trades data model · Cloudinary upload · Journal · Basic analytics | next |
-| 2 | MetaApi integration · Account connection · Initial/incremental sync · Reconciliation | after Phase 1 |
-| 3 | Multi-account dashboard · Session analysis · PDF reports | after Phase 2 |
-| 4 | Billing automation · Advanced queue · AI hooks · Public API | after Phase 3 |
+| **R0 Foundation** | Auth · Tenant · DB/API · Worker · Security · CI/CD | Partial; release verification blocked |
+| **R1 Journal MVP** | Accounts · MT5 Import · Journal · Cloudinary · Dashboard | Partial; release gates not signed off |
+| **R2 Trading Intelligence** | Analytics · Behavior · Profile · Strategy/Versioning | Partial; next product gate |
+| **R3 AI Research** | AI analysis · Regime · Backtest · OOS · Walk Forward | Partial; research gates incomplete |
+| **R4 AI Trading Beta** | Paper · Signal · Semi-Auto · Risk Engine | Not started |
+| **R5 Autonomous Trading** | Full Auto · Execution · AI Journal · Continuous Improvement | Not started |
 
-Each phase follows the **vertical-slice rule** from MASTER PROMPT §40 — *Build + Test + Verify* before moving on.
+The detailed Phase 0–16 roadmap, status overlay, safety gates, and evidence matrix live in the [roadmap](./docs/roadmaps/2026-10-09-trading-journal-ai-trading-roadmap-th.md) and [audit](./docs/roadmaps/2026-10-09-trading-journal-implementation-audit.md). Each future slice follows *Build + Test + Verify* before moving on. Live AI trading is a gated destination, not the current implementation state.
 
 ---
 

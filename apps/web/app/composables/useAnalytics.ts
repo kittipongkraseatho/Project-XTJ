@@ -20,6 +20,17 @@ interface DailyMetric {
   net_p_l: number
 }
 
+interface SymbolMetric {
+  symbol: string
+  count: number
+  net_p_l: number
+  wins: number
+  losses: number
+  win_rate: number
+  avg_win: number
+  avg_loss: number
+}
+
 export function useAnalytics() {
   async function getOverview(accountId?: string): Promise<AnalyticsOverview> {
     return await $fetch<AnalyticsOverview>('/v1/analytics/overview', {
@@ -33,5 +44,11 @@ export function useAnalytics() {
     })
   }
 
-  return { getOverview, getDailyPL }
+  async function getSymbolBreakdown(accountId?: string) {
+    return await $fetch<{ symbols: SymbolMetric[] }>('/v1/analytics/symbol-breakdown', {
+      query: accountId ? { account_id: accountId } : {},
+    })
+  }
+
+  return { getOverview, getDailyPL, getSymbolBreakdown }
 }

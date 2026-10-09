@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // /imports — upload MT5 file + view import history
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useImports } from '~/composables/useImports'
 import type { ImportJob, TradingAccount } from '@trading-journal/shared'
 
@@ -35,9 +35,8 @@ async function refreshAll() {
 
 onMounted(refreshAll)
 
-function onFileChange(e: Event) {
-  const t = e.target as HTMLInputElement
-  file.value = t.files?.[0] ?? null
+function onFileChange(files: File | File[]) {
+  file.value = Array.isArray(files) ? files[0] ?? null : files
 }
 
 async function onUpload() {

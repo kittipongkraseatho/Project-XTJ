@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // /trades — paginated list with filters
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useTrades } from '~/composables/useTrades'
 import type { Trade } from '@trading-journal/shared'
 
@@ -29,9 +29,6 @@ onMounted(refresh)
 
 function fmtMoney(n: number) {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
-function fmtPct(n: number) {
-  return (n * 100).toFixed(1) + '%'
 }
 function outcomeColor(o: string) {
   switch (o) {

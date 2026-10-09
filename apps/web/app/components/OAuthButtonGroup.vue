@@ -6,7 +6,7 @@
 
 import { ref, onMounted } from 'vue'
 
-const props = defineProps<{ mode?: 'login' | 'register' }>()
+defineProps<{ mode?: 'login' | 'register' }>()
 
 const providers = [
   { id: 'google', label: 'Google', icon: 'mdi-google', color: 'primary' },

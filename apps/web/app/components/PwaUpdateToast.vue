@@ -20,7 +20,7 @@ onMounted(() => {
     })
     intervalFn()
     void sw
-  } catch (err) {
+  } catch {
     // PWA module not registered (dev / unsupported). Silently ignore.
   }
 })

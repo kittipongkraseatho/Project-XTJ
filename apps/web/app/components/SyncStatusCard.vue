@@ -15,17 +15,6 @@ const stats = computed(() => ({
   error: connections.value.filter((c) => c.status === 'error').length,
 }))
 
-const recentSync = computed(() => {
-  let latest: BrokerConnection | null = null
-  for (const c of connections.value) {
-    if (!c.last_sync_at) continue
-    if (!latest || new Date(c.last_sync_at) > new Date(latest.last_sync_at)) {
-      latest = c
-    }
-  }
-  return latest
-})
-
 async function refresh() {
   try {
     const res = await listConnections()

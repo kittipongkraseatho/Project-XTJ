@@ -24,7 +24,7 @@ jobs:
     # we use the service containers to mirror production).
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: tj_test
           POSTGRES_USER: tj
@@ -54,6 +54,7 @@ jobs:
       OAUTH_GOOGLE_CLIENT_ID: ci-dummy
       OAUTH_GOOGLE_CLIENT_SECRET: ci-dummy
       OAUTH_GOOGLE_REDIRECT_URI: http://localhost:8080/v1/auth/oauth/google/callback
+      INTEGRATION_TESTS: 'on'
 
     steps:
       - name: Checkout
@@ -80,7 +81,7 @@ jobs:
 
       - name: Unit + integration tests
         working-directory: apps/api
-        run: go test -race -short -coverprofile=cover.out ./...
+        run: go test -tags=integration -race -short -coverprofile=cover.out ./...
 
       - name: Upload coverage
         if: success()

@@ -39,8 +39,7 @@ async function onLogout() {
       <v-btn
         v-for="item in navItems"
         :key="item.to"
-        :to="item.disabled ? undefined : item.to"
-        :disabled="item.disabled"
+        :to="item.to"
         variant="text"
         size="small"
       >

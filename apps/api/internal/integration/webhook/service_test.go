@@ -3,10 +3,7 @@ package webhook_test
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,8 +50,8 @@ func TestIsRetryableResponse(t *testing.T) {
 	}{
 		{200, false}, {201, false}, {204, false},
 		{400, false}, {401, false}, {403, false}, {404, false},
-		{408, true},  // timeout
-		{429, true},  // too many requests
+		{408, true}, // timeout
+		{429, true}, // too many requests
 		{500, true}, {502, true}, {503, true}, {504, true},
 	}
 	for _, c := range cases {
@@ -140,33 +137,4 @@ func TestServiceImpl_Create_InvalidEvent(t *testing.T) {
 	if !errors.Is(err, whsvc.ErrInvalidEvent) {
 		t.Fatalf("want ErrInvalidEvent, got %v", err)
 	}
-}
-
-// ── unused stubs (kept for future Emit/DeliverDue tests with real DB) ──
-
-type stubStore struct {
-	created       atomic.Int32
-	listActiveOut []*webhook.Subscription
-}
-
-func (s *stubStore) Create(ctx context.Context, d *webhook.Delivery) error {
-	s.created.Add(1)
-	return nil
-}
-
-type fakeHTTPDoer struct {
-	responses []*http.Response
-	errors    []error
-	calls     atomic.Int32
-}
-
-func (f *fakeHTTPDoer) Do(req *http.Request) (*http.Response, error) {
-	idx := int(f.calls.Add(1)) - 1
-	if idx < len(f.errors) && f.errors[idx] != nil {
-		return nil, f.errors[idx]
-	}
-	if idx < len(f.responses) {
-		return f.responses[idx], nil
-	}
-	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok"))}, nil
 }

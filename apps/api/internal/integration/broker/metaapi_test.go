@@ -145,9 +145,9 @@ func TestMetaApi_FetchDeals_MapsToCanonical(t *testing.T) {
 		case strings.HasPrefix(uri, "/users/current/accounts/acc_1/history/deals/t1"):
 			return 200, `{
 				"ticket":"t1","symbol":"EURUSD","type":"DEAL_TYPE_BUY",
-				"volume":1.0,"openPrice":1.1,"closePrice":1.105,
+				"volume":1.0,"openPrice":1.234567,"closePrice":1.234568,
 				"openTime":"2024-01-01T00:00:00.000Z","closeTime":"2024-01-01T01:00:00.000Z",
-				"commission":-0.5,"swap":0,"profit":50.0,"magic":42,"comment":"x"
+				"commission":0.005,"swap":0,"profit":50.005,"magic":42,"comment":"x"
 			}`
 		}
 		return 404, "{}"
@@ -175,10 +175,13 @@ func TestMetaApi_FetchDeals_MapsToCanonical(t *testing.T) {
 	if d.Volume != 100000 {
 		t.Errorf("volume (1.0 lot in microlots): %d", d.Volume)
 	}
-	if d.OpenPrice != 110000 {
+	if d.OpenPrice != 123457 {
 		t.Errorf("openPrice: %d", d.OpenPrice)
 	}
-	if d.Profit != 5000 { // 50.0 * 100
+	if d.Commission != 1 { // 0.005 * 100, rounded to the nearest cent
+		t.Errorf("commission: %d", d.Commission)
+	}
+	if d.Profit != 5001 { // 50.005 * 100, rounded to the nearest cent
 		t.Errorf("profit: %d", d.Profit)
 	}
 	if d.ProviderDealID == "" {
@@ -275,5 +278,3 @@ func TestMetaApi_EmptyToken_ErrProviderNotConfigured(t *testing.T) {
 
 // Helper to silence "import unused" if we drop one.
 var _ = fmt.Sprintf
-
-
