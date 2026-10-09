@@ -24,6 +24,9 @@ $RECYCLE.BIN/
 /apps/web/node_modules/
 /apps/web/.env
 
+# Brainstorming visual companion sessions
+.superpowers/
+
 # Test/coverage
 *.test
 *.out
