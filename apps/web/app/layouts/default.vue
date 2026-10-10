@@ -2,23 +2,14 @@
 // Default app shell — dark theme, app header (with PWA install button), footer.
 
 import { useAuthStore } from '~/stores/auth'
+import { NAV_ITEMS } from '~/navigation'
 
 const auth = useAuthStore()
 const route = useRoute()
 
 const navItems = computed(() => {
   if (!auth.isAuthed) return []
-  return [
-    { title: 'Dashboard', to: '/dashboard' },
-    { title: 'Trades', to: '/trades' },
-    { title: 'Imports', to: '/imports' },
-    { title: 'Analytics', to: '/analytics' },
-    { title: 'Accounts', to: '/accounts' },
-    { title: 'Recaps', to: '/recaps' },
-    { title: 'Chat', to: '/chat' },
-    { title: 'API Keys', to: '/api-keys' },
-    { title: 'Webhooks', to: '/webhooks' },
-  ]
+  return NAV_ITEMS
 })
 
 async function onLogout() {
@@ -36,15 +27,33 @@ async function onLogout() {
     </v-app-bar-title>
     <v-spacer />
     <template v-if="auth.user">
-      <v-btn
-        v-for="item in navItems"
-        :key="item.to"
-        :to="item.to"
-        variant="text"
-        size="small"
-      >
-        {{ item.title }}
-      </v-btn>
+      <template v-for="item in navItems" :key="item.to">
+        <v-btn
+          v-if="item.enabled"
+          :to="item.to"
+          variant="text"
+          size="small"
+        >
+          {{ item.title }}
+        </v-btn>
+        <v-tooltip v-else location="bottom">
+          <template #activator="{ props }">
+            <span
+              v-bind="props"
+              class="d-inline-flex"
+              tabindex="0"
+              role="button"
+              aria-disabled="true"
+              :aria-label="`${item.title} — Coming soon`"
+            >
+              <v-btn variant="text" size="small" disabled>
+                {{ item.title }}
+              </v-btn>
+            </span>
+          </template>
+          <span>Coming soon</span>
+        </v-tooltip>
+      </template>
     </template>
     <PwaInstallButton />
     <template v-if="auth.user">
