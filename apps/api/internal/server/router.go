@@ -13,6 +13,9 @@ import (
 
 	"github.com/trading-journal/api/internal/auth"
 	"github.com/trading-journal/api/internal/config"
+	"github.com/trading-journal/api/internal/domain/ai"
+	"github.com/trading-journal/api/internal/domain/broker_connection"
+	"github.com/trading-journal/api/internal/domain/trade"
 	authhttp "github.com/trading-journal/api/internal/httpapi/auth"
 	mehttp "github.com/trading-journal/api/internal/httpapi/me"
 	phase1http "github.com/trading-journal/api/internal/httpapi/phase1"
@@ -22,23 +25,23 @@ import (
 	phase5http "github.com/trading-journal/api/internal/httpapi/phase5"
 	phase6http "github.com/trading-journal/api/internal/httpapi/phase6"
 	phase9http "github.com/trading-journal/api/internal/httpapi/phase9"
-	"github.com/trading-journal/api/internal/domain/ai"
-	"github.com/trading-journal/api/internal/domain/broker_connection"
-	"github.com/trading-journal/api/internal/domain/trade"
+	r2http "github.com/trading-journal/api/internal/httpapi/r2"
 	aisvc "github.com/trading-journal/api/internal/integration/ai"
-	whsvc "github.com/trading-journal/api/internal/integration/webhook"
 	"github.com/trading-journal/api/internal/integration/apikey"
 	"github.com/trading-journal/api/internal/integration/billing"
 	"github.com/trading-journal/api/internal/integration/broker"
-	"github.com/trading-journal/api/internal/integration/mailer"
-	"github.com/trading-journal/api/internal/integration/pdfreport"
 	"github.com/trading-journal/api/internal/integration/cloudinary"
+	"github.com/trading-journal/api/internal/integration/mailer"
 	"github.com/trading-journal/api/internal/integration/oauth"
+	"github.com/trading-journal/api/internal/integration/pdfreport"
+	whsvc "github.com/trading-journal/api/internal/integration/webhook"
 	"github.com/trading-journal/api/internal/observability"
 	"github.com/trading-journal/api/internal/ratelimit"
 	"github.com/trading-journal/api/internal/service"
-	"github.com/trading-journal/api/internal/store"
+	behaviorservice "github.com/trading-journal/api/internal/service/behavior"
 	schedulesvc "github.com/trading-journal/api/internal/service/report_schedule"
+	strategyservice "github.com/trading-journal/api/internal/service/strategy"
+	"github.com/trading-journal/api/internal/store"
 	"github.com/trading-journal/api/internal/syncsvc"
 	"github.com/trading-journal/api/internal/worker"
 )
@@ -118,6 +121,9 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	oauthH := authhttp.NewOAuthHandlers(oauthFlow, logger)
 	importSvc := service.NewImportService(st, logger)
 	importSvc.AttachPool(workerPool) // bg async; nil-safe fallback
+	r2BehaviorSvc := behaviorservice.NewService(st.Trades, st.BehaviorProfiles, st.BehaviorFindings)
+	r2StrategySvc := strategyservice.NewStoreService(st)
+	r2H := r2http.New(r2BehaviorSvc, r2StrategySvc, logger)
 
 	// Phase 5.2 — webhook service + worker. The worker polls every 30s
 	// and processes up to 50 deliveries per tick. ImportService emits
@@ -128,7 +134,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 		PollInterval:   time.Duration(cfg.WebhookPollIntervalSeconds) * time.Second,
 		BatchSize:      cfg.WebhookBatchSize,
 		RequestTimeout: time.Duration(cfg.WebhookHTTPTimeoutSeconds) * time.Second,
-})
+	})
 	whWk.Start()
 
 	// Phase 10 — Idempotency sweeper (hourly cleanup of api_key_idempotency).
@@ -372,11 +378,11 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	if cfg.MetaApiEnabled() {
 		brokerReg.Set(broker_connection.ProviderMetaApi,
 			broker.NewMetaApiAdapter(broker.MetaApiConfig{
-				Token:          cfg.MetaAPIToken,
-				Region:         cfg.MetaAPIRegion,
-				AccountID:      cfg.MetaAPIAccountID,
-				DeployTimeout:  time.Duration(cfg.MetaAPIDeployTimeout) * time.Second,
-				HTTPTimeout:    time.Duration(cfg.MetaAPIHTTPTimeout) * time.Second,
+				Token:         cfg.MetaAPIToken,
+				Region:        cfg.MetaAPIRegion,
+				AccountID:     cfg.MetaAPIAccountID,
+				DeployTimeout: time.Duration(cfg.MetaAPIDeployTimeout) * time.Second,
+				HTTPTimeout:   time.Duration(cfg.MetaAPIHTTPTimeout) * time.Second,
 			}))
 		logger.Info("metaapi provider registered",
 			slog.Int("deploy_timeout_s", cfg.MetaAPIDeployTimeout),
@@ -388,8 +394,8 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	e.POST("/v1/billing/webhook", p4.Webhook)
 
 	// Phase 5.1 — Public API rate-limit backend. Memory default, Redis for prod.
-// Memory: per-instance counters (each replica counts independently).
-// Redis: atomic Lua-based token bucket (correct across replicas).
+	// Memory: per-instance counters (each replica counts independently).
+	// Redis: atomic Lua-based token bucket (correct across replicas).
 	var apiKeyBucket ratelimit.KeyBucket
 	if cfg.RateLimitRedisEnabled() {
 		apiKeyBucket = ratelimit.NewRedisKeyBucket(
@@ -435,6 +441,10 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	// Phase 9 — AI Expansion (weekly recap + Q&A chat).
 	phase9Admin := phase9http.New(recapSvcImpl, chatSvcImpl, st, logger)
 	phase9Admin.RegisterRoutes(authed)
+	// R2 — deterministic behavior profiles and immutable strategy versions.
+	// These are internal JWT product routes; the Public API and outbound
+	// Webhook contracts remain mounted independently below.
+	r2H.RegisterRoutes(authed)
 	phase5http.RegisterRoutes(e, &phase5http.PublicDeps{
 		Logger:                   logger,
 		AccountsList:             p1.ListAccounts,
