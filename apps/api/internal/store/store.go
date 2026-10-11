@@ -73,6 +73,10 @@ type Store struct {
 	ChatThreads       *ChatThreadRepo
 	ChatMessages      *ChatMessageRepo
 	TradeEmbeddings   *TradeEmbeddingRepo
+	BehaviorProfiles  *BehaviorProfileRepo
+	BehaviorFindings  *BehaviorFindingRepo
+	Strategies        *StrategyRepo
+	StrategyVersions  *StrategyVersionRepo
 }
 
 // New builds a Store with all repos wired to the given pool.
@@ -114,6 +118,10 @@ func New(pool *pgxpool.Pool) *Store {
 		ChatThreads:       &ChatThreadRepo{pool: pool},
 		ChatMessages:      &ChatMessageRepo{pool: pool},
 		TradeEmbeddings:   &TradeEmbeddingRepo{pool: pool},
+		BehaviorProfiles:  &BehaviorProfileRepo{pool: pool},
+		BehaviorFindings:  &BehaviorFindingRepo{pool: pool},
+		Strategies:        &StrategyRepo{pool: pool},
+		StrategyVersions:  &StrategyVersionRepo{pool: pool},
 	}
 }
 
