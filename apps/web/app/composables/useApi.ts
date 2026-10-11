@@ -3,6 +3,7 @@
 
 import type { AuthTokens } from '@trading-journal/shared'
 import { useAuthStore } from '~/stores/auth'
+import { joinApiUrl } from '~/api-url'
 
 interface ApiError {
   code: string
@@ -20,7 +21,7 @@ async function refreshTokens(): Promise<void> {
   const cfg = useRuntimeConfig()
   refreshOnceQueue.promise = (async () => {
     try {
-      const tokens = await $fetch<AuthTokens>(`${cfg.public.apiBaseUrl}/v1/auth/refresh`, {
+      const tokens = await $fetch<AuthTokens>(joinApiUrl(cfg.public.apiBaseUrl, '/v1/auth/refresh'), {
         method: 'POST',
         body: { refresh_token: auth.refreshToken },
       })
@@ -40,6 +41,10 @@ export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
   return apiRequest<T>('POST', path, body)
 }
 
+export async function apiPut<T = any>(path: string, body?: any): Promise<T> {
+  return apiRequest<T>('PUT', path, body)
+}
+
 async function apiRequest<T>(method: string, path: string, body?: any, _isRetry = false): Promise<T> {
   const cfg = useRuntimeConfig()
   const auth = useAuthStore()
@@ -47,7 +52,7 @@ async function apiRequest<T>(method: string, path: string, body?: any, _isRetry 
   if (auth.accessToken) headers['Authorization'] = `Bearer ${auth.accessToken}`
 
   try {
-    return await $fetch<T>(`${cfg.public.apiBaseUrl}${path}`, {
+    return await $fetch<T>(joinApiUrl(cfg.public.apiBaseUrl, path), {
       method: method as any,
       body,
       headers,

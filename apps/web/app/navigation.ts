@@ -10,6 +10,8 @@ export const NAV_ITEMS: NavItem[] = [
   { title: 'Imports', to: '/imports', enabled: true },
   { title: 'Analytics', to: '/analytics', enabled: true },
   { title: 'Accounts', to: '/accounts', enabled: true },
+  { title: 'Behavior', to: '/behavior', enabled: true },
+  { title: 'Strategies', to: '/strategies', enabled: true },
   { title: 'Recaps', to: '/recaps', enabled: false },
   { title: 'Chat', to: '/chat', enabled: false },
   { title: 'API Keys', to: '/api-keys', enabled: false },
