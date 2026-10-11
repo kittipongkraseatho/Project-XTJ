@@ -34,6 +34,10 @@ func (s *behaviorProfileWriterStub) ReplaceForProfile(_ context.Context, _ uuid.
 	return nil
 }
 
+func (s *behaviorProfileWriterStub) ListByProfile(context.Context, uuid.UUID, uuid.UUID) ([]domainbehavior.Finding, error) {
+	return s.findings, nil
+}
+
 func (s *behaviorProfileWriterStub) GetLatest(context.Context, uuid.UUID, uuid.UUID) (*domainbehavior.Profile, error) {
 	return s.profile, nil
 }

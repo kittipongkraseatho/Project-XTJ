@@ -108,6 +108,42 @@ func (r *BehaviorFindingRepo) ReplaceForProfile(ctx context.Context, tenantID, p
 	return nil
 }
 
+func (r *BehaviorFindingRepo) ListByProfile(ctx context.Context, tenantID, profileID uuid.UUID) ([]behavior.Finding, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT code, severity, finding_count, evidence
+		FROM trade_behavior_findings
+		WHERE tenant_id = $1 AND profile_id = $2
+		ORDER BY code ASC`, tenantID, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	findings := make([]behavior.Finding, 0)
+	for rows.Next() {
+		var finding behavior.Finding
+		var code, severity string
+		var raw []byte
+		if err := rows.Scan(&code, &severity, &finding.Count, &raw); err != nil {
+			return nil, err
+		}
+		finding.Code = behavior.FindingCode(code)
+		finding.Severity = behavior.FindingSeverity(severity)
+		var evidence struct {
+			TradeIDs   []uuid.UUID `json:"trade_ids"`
+			Timestamps []time.Time `json:"timestamps"`
+		}
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &evidence); err != nil {
+				return nil, err
+			}
+		}
+		finding.EvidenceIDs = evidence.TradeIDs
+		finding.EvidenceAt = evidence.Timestamps
+		findings = append(findings, finding)
+	}
+	return findings, rows.Err()
+}
+
 // ListCompletedByAccountWindow returns the canonical trade inputs used by the
 // deterministic behavior calculator. The close-time predicate excludes open
 // trades from behavior scoring while the open-time bounds define the window.

@@ -24,6 +24,7 @@ type ProfileStore interface {
 
 type FindingStore interface {
 	ReplaceForProfile(context.Context, uuid.UUID, uuid.UUID, []domainbehavior.Finding) error
+	ListByProfile(context.Context, uuid.UUID, uuid.UUID) ([]domainbehavior.Finding, error)
 }
 
 type Auditor interface {
@@ -96,5 +97,13 @@ func (s *Service) AnalyzeAs(ctx context.Context, tenantID uuid.UUID, actorUserID
 }
 
 func (s *Service) Latest(ctx context.Context, tenantID, accountID uuid.UUID) (*domainbehavior.Profile, error) {
-	return s.profiles.GetLatest(ctx, tenantID, accountID)
+	profile, err := s.profiles.GetLatest(ctx, tenantID, accountID)
+	if err != nil {
+		return nil, err
+	}
+	profile.Findings, err = s.findings.ListByProfile(ctx, tenantID, profile.ID)
+	if err != nil {
+		return nil, err
+	}
+	return profile, nil
 }
