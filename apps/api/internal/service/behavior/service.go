@@ -8,6 +8,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	domainbehavior "github.com/trading-journal/api/internal/domain/behavior"
+	"github.com/trading-journal/api/internal/store"
 )
 
 var ErrInvalidWindow = errors.New("behavior: window must end after it starts")
@@ -25,11 +26,16 @@ type FindingStore interface {
 	ReplaceForProfile(context.Context, uuid.UUID, uuid.UUID, []domainbehavior.Finding) error
 }
 
+type Auditor interface {
+	Insert(context.Context, store.AuditEntry) error
+}
+
 type Service struct {
 	trades   TradeReader
 	profiles ProfileStore
 	findings FindingStore
 	calc     *Calculator
+	audit    Auditor
 }
 
 func NewService(trades TradeReader, profiles ProfileStore, findings FindingStore) *Service {
@@ -41,7 +47,15 @@ func NewService(trades TradeReader, profiles ProfileStore, findings FindingStore
 	}
 }
 
+func (s *Service) SetAuditor(auditor Auditor) {
+	s.audit = auditor
+}
+
 func (s *Service) Analyze(ctx context.Context, tenantID, accountID uuid.UUID, from, to time.Time) (*domainbehavior.Profile, error) {
+	return s.AnalyzeAs(ctx, tenantID, nil, accountID, from, to)
+}
+
+func (s *Service) AnalyzeAs(ctx context.Context, tenantID uuid.UUID, actorUserID *uuid.UUID, accountID uuid.UUID, from, to time.Time) (*domainbehavior.Profile, error) {
 	from = from.UTC()
 	to = to.UTC()
 	if !to.After(from) {
@@ -65,6 +79,18 @@ func (s *Service) Analyze(ctx context.Context, tenantID, accountID uuid.UUID, fr
 	}
 	if err := s.findings.ReplaceForProfile(ctx, tenantID, profile.ID, profile.Findings); err != nil {
 		return nil, err
+	}
+	if s.audit != nil {
+		resourceType := "trade_behavior_profile"
+		_ = s.audit.Insert(ctx, store.AuditEntry{
+			ActorUserID: actorUserID, ActorTenantID: &tenantID,
+			Action: "behavior_profile_calculated", ResourceType: &resourceType, ResourceID: &profile.ID,
+			Metadata: map[string]any{
+				"account_id": profile.TradingAccountID.String(), "window_start": profile.WindowStart,
+				"window_end": profile.WindowEnd, "sample_size": profile.SampleSize,
+				"algorithm_version": profile.AlgorithmVersion,
+			},
+		})
 	}
 	return &profile, nil
 }
