@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
 
 	domainbehavior "github.com/trading-journal/api/internal/domain/behavior"
 	"github.com/trading-journal/api/internal/store"
@@ -39,6 +40,10 @@ type Service struct {
 	audit    Auditor
 }
 
+type atomicProfileStore interface {
+	Save(context.Context, *domainbehavior.Profile, []domainbehavior.Finding) error
+}
+
 func NewService(trades TradeReader, profiles ProfileStore, findings FindingStore) *Service {
 	return &Service{
 		trades:   trades,
@@ -46,6 +51,31 @@ func NewService(trades TradeReader, profiles ProfileStore, findings FindingStore
 		findings: findings,
 		calc:     NewCalculator(),
 	}
+}
+
+// NewStoreService wires the production repositories with an atomic profile
+// and finding persistence boundary.
+func NewStoreService(st *store.Store) *Service {
+	return NewService(st.Trades, storeProfileStore{store: st}, st.BehaviorFindings)
+}
+
+type storeProfileStore struct{ store *store.Store }
+
+func (s storeProfileStore) Upsert(ctx context.Context, profile *domainbehavior.Profile) error {
+	return s.store.BehaviorProfiles.Upsert(ctx, profile)
+}
+
+func (s storeProfileStore) GetLatest(ctx context.Context, tenantID, accountID uuid.UUID) (*domainbehavior.Profile, error) {
+	return s.store.BehaviorProfiles.GetLatest(ctx, tenantID, accountID)
+}
+
+func (s storeProfileStore) Save(ctx context.Context, profile *domainbehavior.Profile, findings []domainbehavior.Finding) error {
+	return s.store.WithTx(ctx, func(tx pgx.Tx) error {
+		if err := s.store.BehaviorProfiles.WithTx(tx).Upsert(ctx, profile); err != nil {
+			return err
+		}
+		return s.store.BehaviorFindings.WithTx(tx).ReplaceForProfile(ctx, profile.TenantID, profile.ID, findings)
+	})
 }
 
 func (s *Service) SetAuditor(auditor Auditor) {
@@ -75,11 +105,17 @@ func (s *Service) AnalyzeAs(ctx context.Context, tenantID uuid.UUID, actorUserID
 		}
 		profile.ID = id
 	}
-	if err := s.profiles.Upsert(ctx, &profile); err != nil {
-		return nil, err
-	}
-	if err := s.findings.ReplaceForProfile(ctx, tenantID, profile.ID, profile.Findings); err != nil {
-		return nil, err
+	if saver, ok := s.profiles.(atomicProfileStore); ok {
+		if err := saver.Save(ctx, &profile, profile.Findings); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.profiles.Upsert(ctx, &profile); err != nil {
+			return nil, err
+		}
+		if err := s.findings.ReplaceForProfile(ctx, tenantID, profile.ID, profile.Findings); err != nil {
+			return nil, err
+		}
 	}
 	if s.audit != nil {
 		resourceType := "trade_behavior_profile"

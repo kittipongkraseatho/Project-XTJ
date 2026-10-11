@@ -121,7 +121,7 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, rdb *redis.Client, rl *obs
 	oauthH := authhttp.NewOAuthHandlers(oauthFlow, logger)
 	importSvc := service.NewImportService(st, logger)
 	importSvc.AttachPool(workerPool) // bg async; nil-safe fallback
-	r2BehaviorSvc := behaviorservice.NewService(st.Trades, st.BehaviorProfiles, st.BehaviorFindings)
+	r2BehaviorSvc := behaviorservice.NewStoreService(st)
 	r2StrategySvc := strategyservice.NewStoreService(st)
 	r2H := r2http.New(r2BehaviorSvc, r2StrategySvc, logger)
 
