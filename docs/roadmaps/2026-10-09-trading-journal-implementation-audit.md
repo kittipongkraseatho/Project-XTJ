@@ -2,6 +2,8 @@
 
 วันที่ตรวจ: 9 ตุลาคม 2026 (Asia/Bangkok)
 
+อัปเดต follow-up: 11 ตุลาคม 2026 (Asia/Bangkok) — R2 Behavior Intelligence + Strategy Versioning slice ถูก implement ตาม approved spec แล้ว; ตารางสถานะด้านล่างอ่านร่วมกับภาคผนวก verification ล่าสุด
+
 แหล่งอ้างอิงหลัก:
 
 - Target roadmap: [Trading Journal → Autonomous AI Trading](./2026-10-09-trading-journal-ai-trading-roadmap-th.md)
@@ -17,7 +19,7 @@
 1. rebaseline roadmap ให้ตรงกับเอกสารแนบ
 2. ไล่ตรวจสิ่งที่ทำมาแล้วทั้งหมด
 3. ทำ plan ก่อน implementation
-4. รอบนี้ไม่ implement feature ใหม่ของ Strategy, Backtest, Paper, Signal, Risk, Execution หรือ Live Trading
+4. Follow-up รอบ 11 ตุลาคม implement เฉพาะ R2 Behavior + Strategy Versioning ที่ปลอดภัย; ยังไม่ implement Backtest, Paper, Signal, Risk, Execution หรือ Live Trading
 
 ## 2. Status model
 
@@ -55,7 +57,7 @@
 |---|---|---|---|
 | R0 Foundation | Auth, tenant, DB, API, worker, security, CI/CD | **Partial*** | Core modules and migrations exist, but Go/Docker verification and CI config consistency block release sign-off |
 | R1 Journal MVP | Account, import, journal, Cloudinary, dashboard | **Partial*** | Legacy Phase 1/3 surfaces cover the scope, but import/P&L/tenant/Cloudinary gates and frontend checks are not signed off |
-| R2 Trading Intelligence | Analytics + behavior/profile + strategy/versioning | **Partial** | Analytics exists; behavior profile, behavior detection, strategies and strategy versions are absent |
+| R2 Trading Intelligence | Analytics + behavior/profile + strategy/versioning | **Partial*** | Behavior profile/detectors, Strategy/Versioning, trade linkage, internal JWT API and UI are implemented; release sign-off still needs database-backed tenant/E2E verification |
 | R3 AI Research | AI analysis + regime + Backtest/OOS/WFA | **Partial** | AI analysis/recap/chat exist; market regime, candidate strategy generation and validation loop are absent |
 | R4 AI Trading Beta | Paper + signal + semi-auto + risk engine | **Not started** | No paper order, signal, user approval, hard risk boundary or execution preview path |
 | R5 Autonomous Trading | Full execution, fail-safe, AI journal, continuous improvement | **Not started** | MetaApi adapter only handles account connection/history; no order lifecycle or live loop |
@@ -71,8 +73,8 @@
 | 2 | MT5 Import Engine | Partial | Orders/deals/positions/trades, parser, normalize/dedup and import jobs exist; money representation and real-fixture correctness gates remain | Canonical money/data correctness |
 | 3 | Journal + Cloudinary | Implemented | Journal/tags/images and Cloudinary abstraction/routes exist; execute tenant/security/image-limit verification | R1 gate |
 | 4 | Analytics Engine | Partial | Daily metrics and symbol/session/EA/Magic/equity surfaces exist; complete risk dashboard/regression sign-off is not evidenced | R2 analytics gate |
-| 5 | Trading Behavior Intelligence | Not started | No behavior profile/detection/best-worst setup/risk pattern domain or service found | Phase 4 normalized metrics |
-| 6 | Strategy Builder & Versioning | Not started | No strategies/strategy_versions model, builder, version traceability or trade linkage found | Phase 5 behavior features |
+| 5 | Trading Behavior Intelligence | Implemented; release verification pending | `migrations/0012_r2_trading_intelligence`, `internal/domain/behavior`, deterministic calculator/detectors, tenant-scoped repos, internal API `/v1/accounts/:account_id/behavior-profile`, and `/behavior` UI | R2 regression + DB/E2E sign-off |
+| 6 | Strategy Builder & Versioning | Implemented; release verification pending | `strategies`/`strategy_versions`, strict rule validator, transaction-locked version numbering, trade linkage/audit, internal strategy routes, and `/strategies` UI | R3 validation gates; no execution authority |
 | 7 | AI Strategy Intelligence | Not started | Existing AI is commentary/recap/chat; no candidate strategy/pattern/optimization pipeline | Phase 6 executable strategy model |
 | 8 | Market Intelligence | Not started | No market snapshots, OHLC/indicator/regime pipeline found | Phase 6–7 strategy context |
 | 9 | Backtest & Validation | Not started | No backtest/OOS/WFA/stress/performance gate implementation found | Phases 6–8 |
@@ -109,7 +111,7 @@
 | F-006 | Important | Money-bearing domain structs contain `float64`, contrary to project invariant | `internal/domain/deal/deal.go`, `trade/trade.go`, `position/position.go`, `daily_metric/daily_metric.go` | **Partially adjusted**: MetaApi → canonical integer conversion now rounds instead of truncating; a domain/store/API money representation migration is still required before financial backtest/live claims |
 | F-007 | Minor | Frontend test inventory currently has no `*.test.ts`/`*.spec.ts` files; dependency installation was interrupted during local verification | `apps/web/package.json`, test file inventory | **Adjusted in this pass**: added a shared API-scope contract test; 1 test passes |
 | F-008 | Important | MetaApi integration is historical/account-state only; provider interface has no order open/modify/close methods | `internal/integration/broker/provider.go`, `metaapi.go` | Do not label R4/R5 complete; design ExecutionProvider behind Risk Engine |
-| F-009 | Important | No Strategy, Strategy Version, Market Snapshot, Decision Record, Paper Order or Risk Event production model was found | `migrations/`, `internal/domain/`, `internal/store/` inventory | Start with R2 Behavior → Strategy vertical slice after roadmap approval |
+| F-009 | Important | R2 Behavior/Strategy models now exist; Market Snapshot, Decision Record, Paper Order and Risk Event models remain absent | `migrations/0012_r2_trading_intelligence.up.sql`, `internal/domain/{behavior,strategy}`, `internal/httpapi/r2/` | Keep R3 validation and R4/R5 execution out of scope until independently gated |
 | F-010 | Important | Frontend lint uses ESLint 9 but no `eslint.config.js|mjs|cjs` exists | `apps/web/package.json`, direct `node_modules/.bin/eslint .` | **Adjusted in this pass**: added ESLint flat config plus Vue/TypeScript parser dependencies; lint exits 0 with no errors |
 | F-011 | Important | Frontend typecheck currently reports unresolved Nuxt aliases/shared package types plus existing component/type errors | Direct `node_modules/.bin/nuxt typecheck` | **Adjusted in this pass**: aligned `srcDir` with `app/`, source-linked shared DTO alias, fixed analytics contracts and component errors; typecheck passes |
 
@@ -134,6 +136,8 @@
 | Frontend typecheck | **Passed** — `pnpm typecheck` exits 0 |
 | Frontend unit tests | **Passed** — 1 Vitest contract test passes |
 | Frontend production build | **Passed** — `pnpm build` exits 0 and generates client/server/PWA output; chunk-size and Node deprecation warnings remain |
+| R2 focused Go tests | **Passed** — domain, behavior calculator/detectors/service, strategy service, store repository, HTTP handler and server compilation checks pass |
+| R2 focused frontend tests | **Passed** — behavior/strategy helper tests pass; frontend lint, typecheck and production build pass |
 | Docker/pgvector E2E | Not run locally; Docker engine is not running. CI configuration and test source now use the required pgvector image |
 | Source DOCX preservation | Original path remains untouched; hash validation is part of the revised DOCX task |
 
@@ -156,12 +160,17 @@ After this rebaseline is accepted, the work should proceed in two gates:
 3. Make local/CI Postgres use pgvector where Phase 9 migrations/E2E require it; add an explicit Docker-gated integration job.
 4. Run API race tests and Docker-backed pgvector integration in CI/local Docker; fix money representation before financial validation work.
 
-### Gate 1 — R2 / Phase 5–6 product slice
+### Gate 1 — R2 / Phase 5–6 product slice (delivered, release verification pending)
 
-1. Define behavior metrics and a tenant/account-scoped `TradingBehaviorProfile` read model.
-2. Add deterministic behavior detectors with regression fixtures from normalized trades.
-3. Define `Strategy` and immutable `StrategyVersion` with explicit rule schema.
-4. Link journal/trades to a strategy version without changing live execution.
-5. Add regression and tenant-isolation gates before starting AI Strategy Candidate generation.
+1. ✅ Define behavior metrics and a tenant/account-scoped `TradingBehaviorProfile` read model.
+2. ✅ Add deterministic behavior detectors with regression fixtures from normalized trades.
+3. ✅ Define `Strategy` and immutable `StrategyVersion` with explicit rule schema.
+4. ✅ Link trades to a strategy version without changing live execution.
+5. ✅ Add internal JWT/RBAC routes, audit events, UI surfaces, and focused regression tests.
+6. Run the real PostgreSQL migration and tenant-isolation/E2E checks when Docker/CI is available; keep release sign-off partial until then.
+
+### Next gate — R3 AI Research
+
+Market snapshots/regime, strategy candidates, Backtest, OOS, Walk Forward and paper evidence are still not started. No R2 code adds order execution or a MetaApi order method.
 
 No MetaApi order execution should be added until the later Backtest → OOS → Walk Forward → Paper → Risk → Semi-Auto gates are independently accepted.

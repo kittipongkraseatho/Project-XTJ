@@ -69,7 +69,7 @@ North Star Flow:
 |---|---|---|---|---|
 | R0 | Foundation | วางรากฐานระบบ | Auth, Tenant, DB, API, Worker, Security, CI/CD | Partial* |
 | R1 | Journal MVP | เก็บและวิเคราะห์ Trade ได้ | Account, MT5 Import, Journal, Cloudinary, Dashboard | Partial* |
-| R2 | Trading Intelligence | เปลี่ยนข้อมูลเป็นความรู้ | Analytics, Behavior, Profile, Strategy | Partial |
+| R2 | Trading Intelligence | เปลี่ยนข้อมูลเป็นความรู้ | Analytics, Behavior, Profile, Strategy | Implemented at capability level; release verification pending |
 | R3 | AI Research | สร้างและทดสอบ AI/Strategy | AI Analysis, Regime, Backtest, OOS, Walk Forward | Partial |
 | R4 | AI Trading Beta | AI ช่วยตัดสินใจแบบควบคุมได้ | Paper, Signal, Semi-Auto, Risk Engine | Not started |
 | R5 | Autonomous Trading | AI เทรดจริงผ่าน MetaApi | Full Auto, Execution, AI Journal, Continuous Improvement | Not started |
@@ -110,11 +110,15 @@ P/L, Win Rate, Profit Factor, Drawdown, Expectancy, equity curve, symbol/directi
 
 ### Phase 5 — Trading Behavior Intelligence
 
+สถานะ follow-up 11 ตุลาคม 2026: ส่งมอบ deterministic behavior profile/detectors, tenant-scoped persistence, internal JWT API และหน้า `/behavior` แล้ว เหลือ database-backed/E2E release verification
+
 Trading Profile, behavior detection, best/worst setup, risk behavior, streaks, overtrade และ revenge patterns
 
 **Definition of Done:** สร้าง Profile เชิงพฤติกรรมจากข้อมูลจริง
 
 ### Phase 6 — Strategy Builder & Versioning
+
+สถานะ follow-up 11 ตุลาคม 2026: ส่งมอบ Strategy, immutable Strategy Version, strict rule schema, trade traceability, audit, internal JWT API และหน้า `/strategies` แล้ว ไม่มี execution authority หรือ MetaApi order path
 
 Structured strategy definition, conditions/entry/exit/risk, strategy versioning และ trade-to-strategy linkage
 
@@ -289,12 +293,12 @@ Multi-account AI, strategy per account/shared, AI Add-on, opt-in anonymized aggr
 | Broker integration | Mock provider plus MetaApi REST Connect/FetchDeals/Ping | Historical sync only; not Execution Engine |
 | Billing / Webhooks / Public API | Stripe state machine, outbound webhooks, scoped read/write API keys, idempotency | Cross-cutting platform enablers |
 | AI | Per-trade analysis, weekly recap, Q&A chat with RAG/pgvector | AI platform capability; not AI Strategy Research completion |
-| Behavior / Strategy / Market | No target domain/service/table for profile, strategy version, market snapshot or regime | R2/R3 gap |
+| Behavior / Strategy / Market | Behavior/Strategy profile + versioning slice exists; market snapshot/regime remains absent | R3 gap |
 | Validation / Paper / Signal | No Backtest, OOS, WFA, paper order, signal or decision-record loop | R3/R4 gap |
 | Risk / Execution / Live | No hard Risk Engine or order execution path | R4/R5 not started |
 
 ## 16. Next Step
 
-หลังจาก audit นี้ได้รับการยอมรับ ให้แตก WBS เป็นงานเล็ก เช่น `R2-001`, `R2-002` โดยแต่ละงานระบุ Database, Domain, API, Frontend, Worker, Test, Dependency, Safety Gate และ Definition of Done
+R2 behavior/strategy WBS (`2026-10-11-r2-trading-intelligence-plan.md`) ถูก implement แล้วเป็น vertical slice; เหลือ run migration/E2E บน PostgreSQL จริงก่อน release sign-off
 
 ลำดับ product work ถัดไปคือ **Trading Behavior Intelligence → Strategy Builder & Versioning** ก่อนเริ่ม AI Strategy generation หรือการเชื่อม execution ใด ๆ
