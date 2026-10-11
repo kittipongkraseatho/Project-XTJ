@@ -143,6 +143,9 @@ func (s *Service) CreateVersion(ctx context.Context, tenantID uuid.UUID, in Crea
 }
 
 func (s *Service) ListVersions(ctx context.Context, tenantID, strategyID uuid.UUID) ([]*domainstrategy.Version, error) {
+	if _, err := s.strategies.GetByIDByTenant(ctx, tenantID, strategyID); err != nil {
+		return nil, err
+	}
 	return s.versionGet.ListByStrategy(ctx, tenantID, strategyID)
 }
 

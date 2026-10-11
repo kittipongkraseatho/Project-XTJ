@@ -151,7 +151,9 @@ func (r *TradeRepo) ListCompletedByAccountWindow(ctx context.Context, tenantID, 
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, symbol, direction, volume, net_p_l, outcome, open_time, close_time, magic
 		FROM trades
-		WHERE tenant_id = $1 AND trading_account_id = $2
+		JOIN trading_accounts ON trading_accounts.id = trades.trading_account_id
+		  AND trading_accounts.tenant_id = trades.tenant_id
+		WHERE trades.tenant_id = $1 AND trades.trading_account_id = $2
 		  AND close_time IS NOT NULL
 		  AND open_time >= $3 AND open_time < $4
 		ORDER BY open_time ASC, id ASC`, tenantID, accountID, from, to)

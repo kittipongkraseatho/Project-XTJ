@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	domainbehavior "github.com/trading-journal/api/internal/domain/behavior"
+	"github.com/trading-journal/api/internal/domain/trading_account"
 	"github.com/trading-journal/api/internal/store"
 )
 
@@ -16,6 +17,10 @@ var ErrInvalidWindow = errors.New("behavior: window must end after it starts")
 
 type TradeReader interface {
 	ListCompletedByAccountWindow(context.Context, uuid.UUID, uuid.UUID, time.Time, time.Time) ([]domainbehavior.InputTrade, error)
+}
+
+type AccountReader interface {
+	GetByIDByTenant(context.Context, uuid.UUID, uuid.UUID) (*trading_account.TradingAccount, error)
 }
 
 type ProfileStore interface {
@@ -38,6 +43,7 @@ type Service struct {
 	findings FindingStore
 	calc     *Calculator
 	audit    Auditor
+	accounts AccountReader
 }
 
 type atomicProfileStore interface {
@@ -56,7 +62,9 @@ func NewService(trades TradeReader, profiles ProfileStore, findings FindingStore
 // NewStoreService wires the production repositories with an atomic profile
 // and finding persistence boundary.
 func NewStoreService(st *store.Store) *Service {
-	return NewService(st.Trades, storeProfileStore{store: st}, st.BehaviorFindings)
+	svc := NewService(st.Trades, storeProfileStore{store: st}, st.BehaviorFindings)
+	svc.accounts = st.TradingAccounts
+	return svc
 }
 
 type storeProfileStore struct{ store *store.Store }
@@ -91,6 +99,11 @@ func (s *Service) AnalyzeAs(ctx context.Context, tenantID uuid.UUID, actorUserID
 	to = to.UTC()
 	if !to.After(from) {
 		return nil, ErrInvalidWindow
+	}
+	if s.accounts != nil {
+		if _, err := s.accounts.GetByIDByTenant(ctx, tenantID, accountID); err != nil {
+			return nil, err
+		}
 	}
 	inputs, err := s.trades.ListCompletedByAccountWindow(ctx, tenantID, accountID, from, to)
 	if err != nil {
